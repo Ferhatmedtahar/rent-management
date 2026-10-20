@@ -326,12 +326,19 @@ set local role anon;
 insert into storage.objects(bucket_id,name) values ('payment-slips','11111111-1111-1111-1111-111111111111/new.pdf');
 rollback to g11;
 
--- EXPECT G12: UPDATE 0 / DELETE 0 (no update or delete policy: slips are immutable through the Data API)
+-- EXPECT G12: UPDATE 0 (no update policy: slips are immutable through the Data API)
 savepoint g12;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a2","role":"authenticated"}';
 update storage.objects set name = name || 'x' where bucket_id = 'payment-slips';
-delete from storage.objects where bucket_id = 'payment-slips';
 rollback to g12;
+
+-- EXPECT G13: ERROR Direct deletion from storage tables is not allowed (real Supabase: storage.protect_delete, statement-level, fires before RLS, so
+--   any DELETE on storage.objects errors: stricter than DELETE 0. A DELETE 0 here would also be acceptable. Delete slips through the Storage API.)
+savepoint g13;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a2","role":"authenticated"}';
+delete from storage.objects where bucket_id = 'payment-slips';
+rollback to g13;
 
 rollback;
