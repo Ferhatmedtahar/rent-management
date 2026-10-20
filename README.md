@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Rent Collection System
 
-## Getting Started
+Rent collection for property managers: leases, invoices, cash / bank transfer /
+online payments, and access control for managers, staff and tenants.
 
-First, run the development server:
+Next.js 16 (App Router) · TypeScript · Supabase (Postgres, Auth, RLS, Storage) ·
+Prisma · shadcn/ui · Tailwind CSS · TanStack Query · zod.
+
+Architecture and decisions: [`docs/`](docs/README.md) · rules for contributors
+and AI agents: [`AGENTS.md`](AGENTS.md).
+
+## Prerequisites
+
+- Node.js 22 (20.9+ works) and pnpm (`corepack enable`)
+- Docker (running) and the [Supabase CLI](https://supabase.com/docs/guides/local-development)
+
+## Run locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# 1. dependencies (also generates the Prisma client)
+pnpm install
+
+# 2. start the local Supabase stack (Postgres :54322, API :54321, Studio :54323)
+supabase start            # prints the keys; copy them into .env.local
+
+# 3. environment
+cp .env.example .env.local   # fill NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY and SUPABASE_SERVICE_ROLE_KEY
+
+# 4. database: apply committed migrations, then seed
+pnpm db:migrate:deploy
+pnpm db:seed
+
+# 5. app
+pnpm dev                  # http://localhost:3000  (health check: /api/v1/health)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Run in Docker
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The app image runs the Next.js server only. Supabase keeps running from the
+CLI (step 2 above). See [`docs/docker.md`](docs/docker.md).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+docker compose up --build
+```
 
-## Learn More
+## Scripts
 
-To learn more about Next.js, take a look at the following resources:
+| Command           | Purpose                                   |
+| ----------------- | ----------------------------------------- |
+| `pnpm lint`       | ESLint, including architecture rules      |
+| `pnpm type-check` | TypeScript strict                         |
+| `pnpm test`       | Vitest                                    |
+| `pnpm format`     | Prettier                                  |
+| `pnpm commit`     | Commitizen (Conventional Commits)         |
+| `pnpm db:*`       | Prisma generate / migrate / seed / studio |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Git workflow
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`main` (production) ← `staging` ← `dev` ← `feat/*`. Conventional Commits,
+enforced by commitlint and Husky. Details in
+[`docs/git-workflow.md`](docs/git-workflow.md).
