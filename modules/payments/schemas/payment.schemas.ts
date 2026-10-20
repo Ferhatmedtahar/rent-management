@@ -82,3 +82,14 @@ export function isSlipPathInOrg(slipPath: string, orgId: string): boolean {
     !slipPath.split("/").some((segment) => segment === ".." || segment === ".")
   );
 }
+
+/** Reject and void need a reason of at least 5 characters once trimmed. */
+export const reasonSchema = z.object({
+  reason: z
+    .string()
+    .transform((value) => value.trim())
+    .refine(
+      (value) => value.length >= 5,
+      "A reason of at least 5 characters is required.",
+    ),
+});

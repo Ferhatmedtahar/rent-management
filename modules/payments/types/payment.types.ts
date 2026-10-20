@@ -52,6 +52,30 @@ export type LeaseBalance = {
   pendingSen: number;
 };
 
+export type PaymentStatus =
+  "pending_verification" | "approved" | "rejected" | "voided";
+
+/** A payment row as the review actions need it. */
+export type PaymentRecord = {
+  id: string;
+  leaseId: string;
+  amountSen: number;
+  unappliedSen: number;
+  status: PaymentStatus;
+};
+
+/** Fields a status transition may set. Undefined = leave unchanged. */
+export type PaymentPatch = {
+  status: PaymentStatus;
+  reviewedBy?: string;
+  reviewedAt?: Date;
+  rejectReason?: string;
+  voidedBy?: string;
+  voidedAt?: Date;
+  voidReason?: string;
+  unappliedSen?: number;
+};
+
 /** Everything done inside ONE database transaction. */
 export interface PaymentTx {
   /** SELECT ... FOR UPDATE on the lease row. False when no such lease in the org. */
@@ -66,6 +90,19 @@ export interface PaymentTx {
     rows: AllocationRow[],
   ): Promise<void>;
   insertAudit(entry: AuditEntry): Promise<void>;
+  getPayment(paymentId: string): Promise<PaymentRecord | null>;
+  /**
+   * UPDATE ... WHERE id = $1 AND status = $from. False when no row matched
+   * (somebody else already moved it), which the service reports as 409.
+   */
+  transitionPayment(
+    paymentId: string,
+    from: PaymentStatus,
+    patch: PaymentPatch,
+  ): Promise<boolean>;
+  listAllocations(paymentId: string): Promise<AllocationRow[]>;
+  /** Deletes ONLY this payment's allocation rows. */
+  deleteAllocations(paymentId: string): Promise<void>;
 }
 
 export interface PaymentStore {
@@ -74,6 +111,11 @@ export interface PaymentStore {
     leaseId: string,
     orgId: string,
   ): Promise<{ id: string; tenantId: string } | null>;
+  /** The payment with its lease's tenant, if its lease is in the organization. */
+  findPaymentInOrg(
+    paymentId: string,
+    orgId: string,
+  ): Promise<{ id: string; leaseId: string; leaseTenantId: string } | null>;
   /** True when any payment already points at this slip path. */
   isSlipReferenced(slipPath: string): Promise<boolean>;
   transaction<T>(work: (tx: PaymentTx) => Promise<T>): Promise<T>;

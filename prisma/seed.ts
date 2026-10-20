@@ -3,6 +3,7 @@
  * freshly reset database.
  *
  * Creates organizations, the 7 auth users, memberships, tenants and units.
+ * Payments: Aisyah's cash payment and her bank transfer (staff records, manager approves).
  * Leases (and their invoices) go through the SAME createLease service the API
  * uses, so the seeded data is exactly what the app produces. NO payments yet.
  *
@@ -92,6 +93,14 @@ const RESET_HINT = "Run `npx supabase db reset`, then `pnpm seed` again.";
 
 class SeedError extends Error {}
 
+// A tiny valid one-page PDF, used as the seeded bank-transfer slip.
+const SLIP_PDF = new TextEncoder().encode(
+  "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n" +
+    "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
+    "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]>>endobj\n" +
+    "trailer<</Root 1 0 R>>\n%%EOF\n",
+);
+
 async function main(): Promise<void> {
   const { env } = await import("@/env");
   const { prisma } = await import("@/shared/db/prisma");
@@ -106,6 +115,8 @@ async function main(): Promise<void> {
     await import("@/modules/payments/repositories/payment.repository");
   const { slipStorage } =
     await import("@/modules/payments/adapters/slip-storage.adapter");
+  const { approvePayment } =
+    await import("@/modules/payments/services/review.service");
 
   try {
     const password = env.SEED_PASSWORD;
@@ -216,6 +227,7 @@ async function main(): Promise<void> {
     };
     const northwindManager = await managerOf("manager@northwind.test");
     const betaManager = await managerOf("manager@beta.test");
+    const northwindStaff = await managerOf("staff@northwind.test");
     const leasePlans = [
       {
         who: northwindManager,
@@ -329,6 +341,92 @@ async function main(): Promise<void> {
     if (!cashOk) {
       throw new SeedError(`Aisyah's cash payment is wrong. ${RESET_HINT}`);
     }
+
+    // 3d. Aisyah's bank transfer (RM 2,000, received 2026-03-01 00:30 MYT): the slip is
+    // uploaded to the private bucket, STAFF records it (pending), the MANAGER approves it.
+    const slipPath = `${northwindManager.orgId}/aisyah-march-slip.pdf`;
+    const upload = await admin.storage
+      .from("payment-slips")
+      .upload(slipPath, SLIP_PDF, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+    if (upload.error) {
+      throw new SeedError(
+        `uploading the slip failed: ${upload.error.message}. ${RESET_HINT}`,
+      );
+    }
+    const deps = { store: paymentStore, slips: slipStorage };
+    const transfer = await recordPayment(deps, northwindStaff, aisyahLeaseId, {
+      amountSen: 200000,
+      method: "bank_transfer",
+      receivedAt: "2026-03-01T00:30:00+08:00",
+      slipPath,
+    });
+    if (transfer.status !== "pending_verification") {
+      throw new SeedError(
+        `staff payment should be pending, got ${transfer.status}. ${RESET_HINT}`,
+      );
+    }
+    await approvePayment(
+      { store: paymentStore },
+      northwindManager,
+      transfer.id,
+    );
+
+    const aisyahAllocations = await prisma.paymentAllocation.findMany({
+      where: { leaseId: aisyahLeaseId },
+      include: { invoice: true, payment: true },
+      orderBy: [
+        { payment: { receivedAt: "asc" } },
+        { invoice: { dueDate: "asc" } },
+        { invoice: { kind: "asc" } },
+      ],
+    });
+    console.log("Aisyah's allocations:");
+    for (const a of aisyahAllocations) {
+      const label =
+        a.invoice.kind === "deposit"
+          ? "deposit"
+          : `period ${a.invoice.periodIndex}`;
+      console.log(
+        `  ${a.payment.method.padEnd(13)} -> ${label.padEnd(9)} ${a.amountSen} sen`,
+      );
+    }
+    const unapplied = await prisma.payment.aggregate({
+      where: { leaseId: aisyahLeaseId },
+      _sum: { unappliedSen: true },
+    });
+    const wanted = [
+      ["deposit", 300000],
+      ["period 0", 150000],
+      ["period 1", 50000],
+    ];
+    const got = aisyahAllocations.map((a) => [
+      a.invoice.kind === "deposit"
+        ? "deposit"
+        : `period ${a.invoice.periodIndex}`,
+      Number(a.amountSen),
+    ]);
+    const allocOk =
+      JSON.stringify(got) === JSON.stringify(wanted) &&
+      Number(unapplied._sum.unappliedSen ?? 0) === 0;
+    console.log(
+      `${allocOk ? "OK  " : "FAIL"} allocations match the brief (deposit 300000, period 0 150000, period 1 50000, unapplied 0)`,
+    );
+    if (!allocOk)
+      throw new SeedError(`Aisyah's allocations are wrong. ${RESET_HINT}`);
+
+    const auditCount = await prisma.auditLog.count();
+    const approvedAudits = await prisma.auditLog.count({
+      where: { action: "payment.approved" },
+    });
+    const auditOk = auditCount === 6 && approvedAudits === 2;
+    console.log(
+      `${auditOk ? "OK  " : "FAIL"} audit rows: ${auditCount} (expected 6 = 4 lease.created + 2 payment.approved)`,
+    );
+    if (!auditOk)
+      throw new SeedError(`audit row count is wrong. ${RESET_HINT}`);
 
     // 4. Verify: every account can sign in with the PUBLISHABLE key.
     const publicClient = createClient(

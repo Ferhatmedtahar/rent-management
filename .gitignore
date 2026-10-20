@@ -50,3 +50,4 @@ next-env.d.ts
 # local-only assessment material (employer test brief + handoff)
 /ASSESSMENT.md
 /HANDOFF.md
+/STATUS.md

@@ -92,6 +92,54 @@ function txRepository(tx: Prisma.TransactionClient): PaymentTx {
       });
     },
 
+    async getPayment(paymentId) {
+      const payment = await tx.payment.findUnique({ where: { id: paymentId } });
+      if (!payment) return null;
+      return {
+        id: payment.id,
+        leaseId: payment.leaseId,
+        amountSen: toNumber(payment.amountSen),
+        unappliedSen: toNumber(payment.unappliedSen),
+        status: payment.status,
+      };
+    },
+
+    async transitionPayment(paymentId, from, patch) {
+      // The status guard makes a repeated or concurrent transition match 0 rows.
+      const result = await tx.payment.updateMany({
+        where: { id: paymentId, status: from },
+        data: {
+          status: patch.status,
+          reviewedBy: patch.reviewedBy,
+          reviewedAt: patch.reviewedAt,
+          rejectReason: patch.rejectReason,
+          voidedBy: patch.voidedBy,
+          voidedAt: patch.voidedAt,
+          voidReason: patch.voidReason,
+          unappliedSen:
+            patch.unappliedSen === undefined
+              ? undefined
+              : BigInt(patch.unappliedSen),
+        },
+      });
+      return result.count === 1;
+    },
+
+    async listAllocations(paymentId) {
+      const rows = await tx.paymentAllocation.findMany({
+        where: { paymentId },
+        orderBy: { createdAt: "asc" },
+      });
+      return rows.map((row) => ({
+        invoiceId: row.invoiceId,
+        amountSen: toNumber(row.amountSen),
+      }));
+    },
+
+    async deleteAllocations(paymentId) {
+      await tx.paymentAllocation.deleteMany({ where: { paymentId } });
+    },
+
     async insertAudit(entry: AuditEntry) {
       await tx.auditLog.create({
         data: {
@@ -113,6 +161,24 @@ export const paymentStore: PaymentStore = {
       where: { id: leaseId, orgId },
       select: { id: true, tenantId: true },
     }),
+
+  async findPaymentInOrg(paymentId, orgId) {
+    const payment = await prisma.payment.findFirst({
+      where: { id: paymentId, orgId },
+      select: {
+        id: true,
+        leaseId: true,
+        lease: { select: { tenantId: true } },
+      },
+    });
+    return payment
+      ? {
+          id: payment.id,
+          leaseId: payment.leaseId,
+          leaseTenantId: payment.lease.tenantId,
+        }
+      : null;
+  },
 
   async isSlipReferenced(slipPath) {
     return (await prisma.payment.count({ where: { slipPath } })) > 0;

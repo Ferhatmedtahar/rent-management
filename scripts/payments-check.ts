@@ -3,7 +3,7 @@
  * Run with: pnpm payments:check   (start `pnpm dev` first; the seed must have run)
  * Optional argument: base URL (default http://localhost:3000).
  *
- * It CREATES DATA: one throwaway lease on unit D-03-2 (Probe tenant, a free
+ * It CREATES DATA: two throwaway leases on unit D-03-2 (Probe tenant, a free
  * one-month window starting 2035+) with RM 1,000.00 of rent, and up to two
  * pending staff payments on it. Seeded leases are untouched, but run
  * `npx supabase db reset && pnpm seed` afterwards to get a pristine database.
@@ -220,6 +220,162 @@ async function main(): Promise<void> {
       "manager pays exactly the cap",
       (await post(racePath, "manager@northwind.test", body(left))).status,
       201,
+    );
+
+    // --- approve / reject / void: checks that change no data ---
+    const aisyahPayment = await prisma.payment.findFirstOrThrow({
+      where: { leaseId: aisyahLease.id, status: "approved" },
+    });
+    const act = (
+      action: string,
+      email: string | null,
+      id: string,
+      body: unknown = {},
+    ) => post(`/api/payments/${id}/${action}`, email, body);
+    const reason = { reason: "Checking the rules" };
+    expectStatus(
+      "approve: no token",
+      (await act("approve", null, aisyahPayment.id)).status,
+      401,
+    );
+    expectStatus(
+      "approve: staff",
+      (await act("approve", "staff@northwind.test", aisyahPayment.id)).status,
+      403,
+    );
+    expectStatus(
+      "approve: tenant who owns it",
+      (await act("approve", "aisyah@northwind.test", aisyahPayment.id)).status,
+      403,
+    );
+    expectStatus(
+      "approve: another tenant (Probe)",
+      (await act("approve", "probe@northwind.test", aisyahPayment.id)).status,
+      404,
+    );
+    expectStatus(
+      "approve: Beta manager",
+      (await act("approve", "manager@beta.test", aisyahPayment.id)).status,
+      404,
+    );
+    expectStatus(
+      "approve: unknown payment",
+      (
+        await act(
+          "approve",
+          "manager@northwind.test",
+          "00000000-0000-4000-8000-000000000000",
+        )
+      ).status,
+      404,
+    );
+    expectStatus(
+      "approve: malformed id",
+      (await act("approve", "manager@northwind.test", "nope")).status,
+      404,
+    );
+    expectStatus(
+      "approve: already approved",
+      (await act("approve", "manager@northwind.test", aisyahPayment.id)).status,
+      409,
+    );
+    expectStatus(
+      "reject: reason too short",
+      (
+        await act("reject", "manager@northwind.test", aisyahPayment.id, {
+          reason: "no",
+        })
+      ).status,
+      400,
+    );
+    expectStatus(
+      "reject: approved payment",
+      (await act("reject", "manager@northwind.test", aisyahPayment.id, reason))
+        .status,
+      409,
+    );
+    expectStatus(
+      "void: staff",
+      (await act("void", "staff@northwind.test", aisyahPayment.id, reason))
+        .status,
+      403,
+    );
+    expectStatus(
+      "void: Beta manager",
+      (await act("void", "manager@beta.test", aisyahPayment.id, reason)).status,
+      404,
+    );
+    expectStatus(
+      "void: reason too short",
+      (
+        await act("void", "manager@northwind.test", aisyahPayment.id, {
+          reason: "   ",
+        })
+      ).status,
+      400,
+    );
+
+    // --- Concurrent double approve of ONE pending payment (the race lease's cap is spent, so use a fresh one) ---
+    const year2 = year + 1;
+    const created2 = await post("/api/leases", "manager@northwind.test", {
+      unitId: unit.id,
+      tenantId: probe.id,
+      startDate: `${year2}-01-01`,
+      endDate: `${year2}-01-31`,
+      monthlyRentSen: 100000,
+      depositSen: 0,
+    });
+    expectStatus(
+      `create second throwaway lease ${year2}-01`,
+      created2.status,
+      201,
+    );
+    const lease2 = String(created2.body?.id ?? "");
+    const recorded = await post(
+      `/api/leases/${lease2}/payments`,
+      "staff@northwind.test",
+      body(60000),
+    );
+    expectStatus("staff records a pending payment", recorded.status, 201);
+    const paymentId = String(recorded.body?.id ?? "");
+    const [a, b] = await Promise.all([
+      act("approve", "manager@northwind.test", paymentId),
+      act("approve", "manager@northwind.test", paymentId),
+    ]);
+    const approvals = [a.status, b.status].sort((x, y) => x - y);
+    const oneApproval = approvals[0] === 200 && approvals[1] === 409;
+    if (!oneApproval) failures += 1;
+    console.log(
+      `${oneApproval ? "OK  " : "FAIL"} double approve: statuses ${approvals.join(" / ")} (expected 200 / 409)`,
+    );
+    const allocated = await prisma.paymentAllocation.aggregate({
+      where: { paymentId },
+      _sum: { amountSen: true },
+      _count: true,
+    });
+    const once =
+      allocated._count === 1 && Number(allocated._sum.amountSen) === 60000;
+    if (!once) failures += 1;
+    console.log(
+      `${once ? "OK  " : "FAIL"} allocated once: ${allocated._count} row(s), ${allocated._sum.amountSen} sen (expected 1 row, 60000)`,
+    );
+
+    // Void it again: allocation rows go, the payment stays as a voided record.
+    expectStatus(
+      "void the approved payment",
+      (await act("void", "manager@northwind.test", paymentId, reason)).status,
+      200,
+    );
+    expectStatus(
+      "void it again",
+      (await act("void", "manager@northwind.test", paymentId, reason)).status,
+      409,
+    );
+    const rows = await prisma.paymentAllocation.count({ where: { paymentId } });
+    const gone = rows === 0;
+    if (!gone) failures += 1;
+    console.log(
+      `${gone ? "OK  " : "FAIL"} void removed the allocation rows: ${rows} left (expected 0)`,
     );
 
     if (failures > 0) throw new Error(`${failures} check(s) failed`);

@@ -1,21 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Actor } from "@/modules/auth";
 import { HttpError } from "@/shared/lib/http-error";
-import type {
-  AllocatableInvoice,
-  AllocationRow,
-  AuditEntry,
-  NewPayment,
-  PaymentDeps,
-  PaymentTx,
-} from "../types/payment.types";
+import { LEASE, ORG_A, ORG_B, TENANT_ROW, TOTAL, setup } from "./fake-store";
 import { recordPayment } from "./payment.service";
 
-const ORG_A = "11111111-1111-4111-8111-111111111111";
-const ORG_B = "22222222-2222-4222-8222-222222222222";
-const LEASE = "cccccccc-0000-4000-8000-000000000001";
 const OTHER_LEASE = "cccccccc-0000-4000-8000-000000000002";
-const TENANT_ROW = "dddddddd-0000-4000-8000-000000000001";
 
 const manager: Actor = {
   userId: "00000000-0000-4000-8000-0000000000a1",
@@ -39,149 +28,7 @@ const otherTenant: Actor = {
 };
 const otherOrgManager: Actor = { ...manager, orgId: ORG_B };
 
-// Aisyah: deposit 300000 + 5 x 150000 + 77419 = 1,127,419
-const invoices = (): AllocatableInvoice[] => [
-  {
-    id: "DEP",
-    kind: "deposit",
-    periodIndex: null,
-    dueDate: "2026-01-31",
-    amountSen: 300000,
-    allocatedSen: 0,
-  },
-  {
-    id: "P0",
-    kind: "rent",
-    periodIndex: 0,
-    dueDate: "2026-01-31",
-    amountSen: 150000,
-    allocatedSen: 0,
-  },
-  {
-    id: "P1",
-    kind: "rent",
-    periodIndex: 1,
-    dueDate: "2026-02-28",
-    amountSen: 150000,
-    allocatedSen: 0,
-  },
-  {
-    id: "P2",
-    kind: "rent",
-    periodIndex: 2,
-    dueDate: "2026-03-31",
-    amountSen: 150000,
-    allocatedSen: 0,
-  },
-  {
-    id: "P3",
-    kind: "rent",
-    periodIndex: 3,
-    dueDate: "2026-04-30",
-    amountSen: 150000,
-    allocatedSen: 0,
-  },
-  {
-    id: "P4",
-    kind: "rent",
-    periodIndex: 4,
-    dueDate: "2026-05-31",
-    amountSen: 150000,
-    allocatedSen: 0,
-  },
-  {
-    id: "P5",
-    kind: "rent",
-    periodIndex: 5,
-    dueDate: "2026-06-30",
-    amountSen: 77419,
-    allocatedSen: 0,
-  },
-];
-const TOTAL = 1_127_419;
-
-type Payment = NewPayment & { id: string };
-
-function setup(
-  options: {
-    invoices?: AllocatableInvoice[];
-    failAt?: "insert" | "audit";
-    slipExists?: boolean;
-    slipReferenced?: boolean;
-  } = {},
-) {
-  const db = {
-    invoices: options.invoices ?? invoices(),
-    payments: [] as Payment[],
-    allocations: [] as (AllocationRow & { paymentId: string })[],
-    audits: [] as AuditEntry[],
-  };
-  const calls = {
-    removed: [] as string[],
-    exists: [] as string[],
-    order: [] as string[],
-  };
-  const tx = (draft: typeof db): PaymentTx => ({
-    lockLease: async (leaseId, orgId) => {
-      calls.order.push("lock");
-      return leaseId === LEASE && orgId === ORG_A;
-    },
-    leaseBalance: async () => {
-      calls.order.push("balance");
-      return {
-        invoicedSen: draft.invoices.reduce((s, i) => s + i.amountSen, 0),
-        allocatedSen: draft.allocations.reduce((s, a) => s + a.amountSen, 0),
-        pendingSen: draft.payments
-          .filter((p) => p.status === "pending_verification")
-          .reduce((s, p) => s + p.amountSen, 0),
-      };
-    },
-    listInvoicesForAllocation: async () =>
-      draft.invoices.map((i) => ({
-        ...i,
-        allocatedSen: draft.allocations
-          .filter((a) => a.invoiceId === i.id)
-          .reduce((s, a) => s + a.amountSen, 0),
-      })),
-    insertPayment: async (p) => {
-      if (options.failAt === "insert") throw new Error("boom insert");
-      const row = { ...p, id: `pay-${draft.payments.length + 1}` };
-      draft.payments.push(row);
-      return { id: row.id };
-    },
-    insertAllocations: async (_o, _l, paymentId, rows) => {
-      draft.allocations.push(...rows.map((r) => ({ ...r, paymentId })));
-    },
-    insertAudit: async (e) => {
-      if (options.failAt === "audit") throw new Error("boom audit");
-      draft.audits.push(e);
-    },
-  });
-  const deps: PaymentDeps = {
-    store: {
-      findLeaseInOrg: async (id, orgId) =>
-        id === LEASE && orgId === ORG_A ? { id, tenantId: TENANT_ROW } : null,
-      isSlipReferenced: async () => options.slipReferenced ?? false,
-      // Copy-on-write: a throw discards everything, like a rolled-back transaction.
-      transaction: async (work) => {
-        const draft = structuredClone(db);
-        const result = await work(tx(draft));
-        Object.assign(db, draft);
-        return result;
-      },
-    },
-    slips: {
-      exists: async (path) => {
-        calls.exists.push(path);
-        return options.slipExists ?? true;
-      },
-      remove: async (path) => {
-        calls.removed.push(path);
-      },
-    },
-  };
-  return { deps, db, calls };
-}
+const FIRST_ID = "ffffffff-0000-4000-8000-000000000100";
 
 const cash = (amountSen: number, extra: Record<string, unknown> = {}) => ({
   amountSen,
@@ -211,7 +58,7 @@ describe("recordPayment: roles and visibility", () => {
   it("manager: approved, allocated, audited, recorded_by and reviewed_by set", async () => {
     const { deps, db } = setup();
     expect(await recordPayment(deps, manager, LEASE, cash(300000))).toEqual({
-      id: "pay-1",
+      id: FIRST_ID,
       status: "approved",
     });
     expect(db.payments[0]).toMatchObject({
@@ -223,13 +70,13 @@ describe("recordPayment: roles and visibility", () => {
     });
     expect(db.payments[0]?.reviewedAt).toBeInstanceOf(Date);
     expect(db.allocations).toEqual([
-      { invoiceId: "DEP", amountSen: 300000, paymentId: "pay-1" },
+      { invoiceId: "DEP", amountSen: 300000, paymentId: FIRST_ID },
     ]);
     expect(db.audits).toHaveLength(1);
     expect(db.audits[0]).toMatchObject({
       action: "payment.approved",
       entityType: "payment",
-      entityId: "pay-1",
+      entityId: "ffffffff-0000-4000-8000-000000000100",
       actorId: manager.userId,
       orgId: ORG_A,
     });
@@ -249,7 +96,7 @@ describe("recordPayment: roles and visibility", () => {
   it("staff: pending_verification, no allocation, no audit row, no reviewer", async () => {
     const { deps, db } = setup();
     expect(await recordPayment(deps, staff, LEASE, cash(1000))).toEqual({
-      id: "pay-1",
+      id: FIRST_ID,
       status: "pending_verification",
     });
     expect(db.payments[0]).toMatchObject({
