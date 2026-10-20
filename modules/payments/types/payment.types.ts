@@ -7,18 +7,14 @@ export type RecordPaymentInput = {
   slipPath?: string;
 };
 
-/** An invoice as the allocation sees it. dueDate is YYYY-MM-DD. */
-export type AllocatableInvoice = {
-  id: string;
-  kind: "deposit" | "rent";
-  periodIndex: number | null;
-  dueDate: string;
-  amountSen: number;
-  /** Already allocated by this lease's other approved payments. */
-  allocatedSen: number;
-};
-
-export type AllocationRow = { invoiceId: string; amountSen: number };
+export type {
+  AllocatableInvoice,
+  AllocationRow,
+} from "@/shared/lib/allocation";
+import type {
+  AllocatableInvoice,
+  AllocationRow,
+} from "@/shared/lib/allocation";
 
 export type NewPayment = {
   orgId: string;

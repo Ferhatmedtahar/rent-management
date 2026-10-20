@@ -10,7 +10,7 @@ import type {
   PaymentStore,
   PaymentTx,
 } from "../types/payment.types";
-import { allocatePayment } from "./allocation";
+import { allocatePayment } from "@/shared/lib/allocation";
 
 /**
  * Approve, reject and void: manager only.

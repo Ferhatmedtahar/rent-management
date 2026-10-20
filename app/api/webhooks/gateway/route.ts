@@ -1,0 +1,1 @@
+export { POST } from "@/modules/gateway/api/post-webhook";

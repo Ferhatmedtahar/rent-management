@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AllocatableInvoice } from "../types/payment.types";
-import { allocatePayment } from "./allocation";
+import { allocatePayment, type AllocatableInvoice } from "./allocation";
 
 const inv = (
   id: string,

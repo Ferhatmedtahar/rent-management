@@ -8,4 +8,9 @@ export const queryKeys = {
     all: ["health"] as const,
     status: () => [...queryKeys.health.all, "status"] as const,
   },
+  gateway: {
+    all: ["gateway"] as const,
+    bill: (billId: string) =>
+      [...queryKeys.gateway.all, "bill", billId] as const,
+  },
 } as const;

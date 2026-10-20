@@ -203,6 +203,8 @@ const eslintConfig = defineConfig([
     "generated/**",
     "next-env.d.ts",
     ".claude/**",
+    // The brief's simulator, kept byte-for-byte.
+    "gateway-sim.mjs",
   ]),
 ]);
 

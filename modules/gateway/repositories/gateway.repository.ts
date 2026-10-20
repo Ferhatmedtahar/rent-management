@@ -2,7 +2,11 @@ import "server-only";
 
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/shared/db/prisma";
-import type { GatewayStore, GatewayTx } from "../types/gateway.types";
+import type {
+  BillReadStore,
+  GatewayStore,
+  GatewayTx,
+} from "../types/gateway.types";
 
 function txRepository(tx: Prisma.TransactionClient): GatewayTx {
   return {
@@ -61,4 +65,26 @@ export const gatewayStore: GatewayStore = {
     }),
 
   transaction: (work) => prisma.$transaction((tx) => work(txRepository(tx))),
+};
+
+export const billReader: BillReadStore = {
+  async findBillInOrg(billId, orgId) {
+    const bill = await prisma.gatewayBill.findFirst({
+      where: { id: billId, orgId },
+      select: {
+        id: true,
+        amountSen: true,
+        status: true,
+        lease: { select: { tenantId: true } },
+      },
+    });
+    return bill
+      ? {
+          id: bill.id,
+          amountSen: Number(bill.amountSen),
+          status: bill.status,
+          leaseTenantId: bill.lease.tenantId,
+        }
+      : null;
+  },
 };

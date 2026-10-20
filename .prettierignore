@@ -28,3 +28,6 @@ generated
 
 # harness-managed
 .claude
+
+# the brief's gateway simulator, kept byte-for-byte
+gateway-sim.mjs

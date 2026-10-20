@@ -8,7 +8,7 @@ import {
   recordPaymentSchema,
 } from "../schemas/payment.schemas";
 import type { PaymentDeps } from "../types/payment.types";
-import { allocatePayment } from "./allocation";
+import { allocatePayment } from "@/shared/lib/allocation";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
