@@ -84,4 +84,15 @@ export interface LeaseReadStore {
     orgId: string,
     tenantId?: string,
   ): Promise<LeaseDetail | null>;
+  listLeases(orgId: string): Promise<LeaseSummary[]>;
 }
+
+export type LeaseSummary = {
+  id: string;
+  unitName: string;
+  tenantName: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  monthlyRentSen: number;
+  depositSen: number;
+};

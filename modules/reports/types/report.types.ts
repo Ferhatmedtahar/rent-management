@@ -1,5 +1,7 @@
 export type CollectionsRow = { month: string; collectedSen: number };
 
+export type OverdueReport = { overdueCount: number };
+
 /** A payment as the report reads it. The sum is done in bigint, converted at the very end. */
 export type PaymentForReport = {
   receivedAt: Date;
@@ -18,4 +20,14 @@ export interface ReportStore {
     start: Date,
     endExclusive: Date,
   ): Promise<PaymentForReport[]>;
+
+  /**
+   * Count of invoices belonging to ONE organization where:
+   * 1. sum(payment_allocations) < amount_sen (not fully paid)
+   * 2. due_date < asOfMalaysiaDate (due before asOfMalaysiaDate)
+   */
+  countOverdueInvoices(
+    orgId: string,
+    asOfMalaysiaDate: string,
+  ): Promise<number>;
 }

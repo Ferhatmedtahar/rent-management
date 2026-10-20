@@ -141,4 +141,25 @@ export const leaseReader: LeaseReadStore = {
       })),
     };
   },
+
+  async listLeases(orgId) {
+    const leases = await prisma.lease.findMany({
+      where: { orgId },
+      include: {
+        unit: { select: { name: true } },
+        tenant: { select: { fullName: true } },
+      },
+      orderBy: [{ startDate: "asc" }, { id: "asc" }],
+    });
+
+    return leases.map((l) => ({
+      id: l.id,
+      unitName: l.unit.name,
+      tenantName: l.tenant.fullName,
+      startDate: toDateString(l.startDate),
+      endDate: toDateString(l.endDate),
+      monthlyRentSen: Number(l.monthlyRentSen),
+      depositSen: Number(l.depositSen),
+    }));
+  },
 };

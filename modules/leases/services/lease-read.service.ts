@@ -2,9 +2,13 @@ import "server-only";
 
 import { invoiceStatus, type InvoiceStatus } from "@/lib/billing";
 import type { Actor } from "@/modules/auth";
-import { notFound } from "@/modules/auth/api/policy";
+import { notFound, requireRole } from "@/modules/auth/api/policy";
 import { toMalaysiaIso } from "@/shared/lib/malaysia-time";
-import type { LeaseDetail, LeaseReadStore } from "../types/lease.types";
+import type {
+  LeaseDetail,
+  LeaseReadStore,
+  LeaseSummary,
+} from "../types/lease.types";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -61,4 +65,16 @@ export async function getLease(
       receivedAt: toMalaysiaIso(payment.receivedAt),
     })),
   };
+}
+
+/**
+ * GET /api/leases. Staff and managers of the organization only (tenant gets 403).
+ * Always scoped to the actor's org.
+ */
+export async function listLeases(
+  store: LeaseReadStore,
+  actor: Actor,
+): Promise<LeaseSummary[]> {
+  requireRole(actor, ["manager", "staff"]);
+  return store.listLeases(actor.orgId);
 }

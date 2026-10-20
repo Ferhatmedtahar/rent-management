@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Actor } from "@/modules/auth";
 import { HttpError } from "@/shared/lib/http-error";
 import type { PaymentForReport, ReportStore } from "../types/report.types";
-import { getCollections } from "./report.service";
+import { getCollections, getOverdueReport } from "./report.service";
 
 const ORG_A = "11111111-1111-4111-8111-111111111111";
 const ORG_B = "22222222-2222-4222-8222-222222222222";
@@ -39,6 +39,7 @@ function storeOf(rows: Row[]) {
         (r) => r.orgId === orgId && r.receivedAt >= start && r.receivedAt < end,
       );
     },
+    countOverdueInvoices: async () => 0,
   };
   return { store, calls };
 }
@@ -257,5 +258,167 @@ describe("roles and organization isolation", () => {
       (await getCollections(store, manager, q("2026-03", "2026-03")))[0]
         ?.collectedSen,
     ).toBe(200000);
+  });
+});
+
+describe("getOverdueReport", () => {
+  type FakeInvoice = {
+    id: string;
+    orgId: string;
+    dueDate: string; // YYYY-MM-DD
+    amountSen: bigint;
+    allocations: { amountSen: bigint }[];
+  };
+
+  function overdueStoreOf(invoices: FakeInvoice[]): ReportStore {
+    return {
+      listPaymentsReceivedBetween: async () => [],
+      countOverdueInvoices: async (orgId: string, asOfMalaysiaDate: string) => {
+        return invoices
+          .filter(
+            (inv) => inv.orgId === orgId && inv.dueDate < asOfMalaysiaDate,
+          )
+          .filter((inv) => {
+            const paid = inv.allocations.reduce(
+              (sum, a) => sum + a.amountSen,
+              BigInt(0),
+            );
+            return paid < inv.amountSen;
+          }).length;
+      },
+    };
+  }
+
+  it("manager and staff can view; tenant gets 403", async () => {
+    const store = overdueStoreOf([]);
+    expect(await statusOf(getOverdueReport(store, manager))).toBe("ok");
+    expect(await statusOf(getOverdueReport(store, staff))).toBe("ok");
+    expect(await statusOf(getOverdueReport(store, tenant))).toBe(403);
+  });
+
+  it("due today in MYT is NOT overdue", async () => {
+    const store = overdueStoreOf([
+      {
+        id: "inv-today",
+        orgId: ORG_A,
+        dueDate: "2026-03-15",
+        amountSen: BigInt(150000),
+        allocations: [],
+      },
+    ]);
+    // 2026-03-15T04:00:00Z is 12:00:00 MYT on 2026-03-15
+    const report = await getOverdueReport(
+      store,
+      manager,
+      new Date("2026-03-15T04:00:00Z"),
+    );
+    expect(report.overdueCount).toBe(0);
+  });
+
+  it("due yesterday is overdue", async () => {
+    const store = overdueStoreOf([
+      {
+        id: "inv-yesterday",
+        orgId: ORG_A,
+        dueDate: "2026-03-14",
+        amountSen: BigInt(150000),
+        allocations: [],
+      },
+    ]);
+    const report = await getOverdueReport(
+      store,
+      manager,
+      new Date("2026-03-15T04:00:00Z"),
+    );
+    expect(report.overdueCount).toBe(1);
+  });
+
+  it("fully paid is not overdue even if past due", async () => {
+    const store = overdueStoreOf([
+      {
+        id: "inv-paid",
+        orgId: ORG_A,
+        dueDate: "2026-03-14",
+        amountSen: BigInt(150000),
+        allocations: [{ amountSen: BigInt(150000) }],
+      },
+    ]);
+    const report = await getOverdueReport(
+      store,
+      manager,
+      new Date("2026-03-15T04:00:00Z"),
+    );
+    expect(report.overdueCount).toBe(0);
+  });
+
+  it("partially paid and past due is overdue", async () => {
+    const store = overdueStoreOf([
+      {
+        id: "inv-partial",
+        orgId: ORG_A,
+        dueDate: "2026-03-14",
+        amountSen: BigInt(150000),
+        allocations: [{ amountSen: BigInt(50000) }],
+      },
+    ]);
+    const report = await getOverdueReport(
+      store,
+      manager,
+      new Date("2026-03-15T04:00:00Z"),
+    );
+    expect(report.overdueCount).toBe(1);
+  });
+
+  it("Beta data never counts for Northwind", async () => {
+    const store = overdueStoreOf([
+      {
+        id: "inv-beta",
+        orgId: ORG_B,
+        dueDate: "2026-03-14",
+        amountSen: BigInt(150000),
+        allocations: [],
+      },
+    ]);
+    const northwind = await getOverdueReport(
+      store,
+      manager,
+      new Date("2026-03-15T04:00:00Z"),
+    );
+    expect(northwind.overdueCount).toBe(0);
+
+    const beta = await getOverdueReport(
+      store,
+      betaManager,
+      new Date("2026-03-15T04:00:00Z"),
+    );
+    expect(beta.overdueCount).toBe(1);
+  });
+
+  it("clock at 2026-03-01T15:59:59Z vs 16:00:00Z for an invoice due 2026-03-01", async () => {
+    const store = overdueStoreOf([
+      {
+        id: "inv-boundary",
+        orgId: ORG_A,
+        dueDate: "2026-03-01",
+        amountSen: BigInt(150000),
+        allocations: [],
+      },
+    ]);
+
+    // 15:59:59Z + 8h = 23:59:59 on March 1 -> todayInMalaysia is 2026-03-01 -> NOT overdue
+    const beforeMidnight = await getOverdueReport(
+      store,
+      manager,
+      new Date("2026-03-01T15:59:59Z"),
+    );
+    expect(beforeMidnight.overdueCount).toBe(0);
+
+    // 16:00:00Z + 8h = 00:00:00 on March 2 -> todayInMalaysia is 2026-03-02 -> OVERDUE
+    const atMidnight = await getOverdueReport(
+      store,
+      manager,
+      new Date("2026-03-01T16:00:00Z"),
+    );
+    expect(atMidnight.overdueCount).toBe(1);
   });
 });

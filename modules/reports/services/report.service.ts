@@ -3,7 +3,13 @@ import "server-only";
 import type { Actor } from "@/modules/auth";
 import { requireRole } from "@/modules/auth/api/policy";
 import { HttpError } from "@/shared/lib/http-error";
-import type { CollectionsRow, ReportStore } from "../types/report.types";
+import { todayInMalaysia } from "@/shared/lib/malaysia-time";
+import type {
+  CollectionsRow,
+  OverdueReport,
+  ReportStore,
+} from "../types/report.types";
+
 import {
   MAX_RANGE_MONTHS,
   listMonths,
@@ -70,4 +76,22 @@ export async function getCollections(
     month,
     collectedSen: Number(total),
   }));
+}
+
+/**
+ * GET /api/reports/overdue. Staff and managers only (tenant 403), always
+ * scoped to the caller's organization.
+ *
+ * Counts invoices of the caller's org that are not fully paid
+ * with due_date < todayInMalaysia(now).
+ */
+export async function getOverdueReport(
+  store: ReportStore,
+  actor: Actor,
+  now: Date = new Date(),
+): Promise<OverdueReport> {
+  requireRole(actor, ["manager", "staff"]);
+  const asOf = todayInMalaysia(now);
+  const overdueCount = await store.countOverdueInvoices(actor.orgId, asOf);
+  return { overdueCount };
 }

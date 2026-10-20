@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Actor } from "@/modules/auth";
 import { HttpError } from "@/shared/lib/http-error";
 import type { LeaseDetail, LeaseReadStore } from "../types/lease.types";
-import { getLease } from "./lease-read.service";
+import { getLease, listLeases } from "./lease-read.service";
 
 const ORG_A = "11111111-1111-4111-8111-111111111111";
 const ORG_B = "22222222-2222-4222-8222-222222222222";
@@ -83,6 +83,22 @@ const store: LeaseReadStore = {
     if (tenantId !== undefined && tenantId !== TENANT) return null;
     return detail();
   },
+  listLeases: async (orgId) => {
+    if (orgId === ORG_A) {
+      return [
+        {
+          id: LEASE,
+          unitName: "A-12-3",
+          tenantName: "Aisyah Rahman",
+          startDate: "2026-01-31",
+          endDate: "2026-07-15",
+          monthlyRentSen: 150000,
+          depositSen: 300000,
+        },
+      ];
+    }
+    return [];
+  },
 };
 
 const NOW = new Date("2026-03-15T00:00:00Z");
@@ -150,6 +166,7 @@ describe("getLease: shape and ordering", () => {
           inv("D", "deposit", null, "2026-04-01", 1),
         ],
       }),
+      listLeases: async () => [],
     };
     expect(
       (await getLease(s, manager, LEASE, NOW)).invoices.map((i) => i.id),
@@ -222,5 +239,27 @@ describe("getLease: invoice status with an injected clock", () => {
 
   it("paid invoices stay paid forever", async () => {
     expect((await statusAt("2030-01-01T00:00:00Z")).DEP).toBe("paid");
+  });
+});
+
+describe("listLeases: who can see it", () => {
+  it.each([
+    ["manager", manager],
+    ["staff", staff],
+  ])("%s -> ok", async (_n, actor) => {
+    expect(await statusOf(listLeases(store, actor))).toBe("ok");
+    const leases = await listLeases(store, actor);
+    expect(leases).toHaveLength(1);
+    expect(leases[0]?.unitName).toBe("A-12-3");
+    expect(leases[0]?.tenantName).toBe("Aisyah Rahman");
+  });
+
+  it("tenant -> 403 forbidden", async () => {
+    expect(await statusOf(listLeases(store, owner))).toBe(403);
+  });
+
+  it("scoped to orgId: another organization sees only its own leases", async () => {
+    const leases = await listLeases(store, otherOrg);
+    expect(leases).toHaveLength(0);
   });
 });
