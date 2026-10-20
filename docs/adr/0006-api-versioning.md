@@ -1,6 +1,6 @@
 # 0006. URL-path API versioning (`/api/v1`)
 
-- Status: Accepted
+- Status: Superseded by 0015
 - Date: 2026-10-20
 
 ## Context

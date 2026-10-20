@@ -1,4 +1,4 @@
-# 0003. API-first data access through `/api/v1`
+# 0003. API-first data access through `/api`
 
 - Status: Accepted
 - Date: 2026-10-20
@@ -12,12 +12,12 @@ so we want one explicit, testable, secured entry point for every operation.
 
 ## Decision
 
-All reads and writes from the UI go through versioned Route Handlers under
-`/api/v1`. The call chain is fixed: component → hook (React Query) → client
+All reads and writes from the UI go through Route Handlers under `/api`
+(paths fixed by the brief, docs/adr/0015). The call chain is fixed: component → hook (React Query) → client
 service → `api-client` → route → handler → server service → repository.
 Components never fetch; hooks never call Prisma. Server Actions are reserved
 for flows that must run on the server and redirect (Google sign-in/out).
-A future separate backend replaces the handlers behind the same `/api/v1`
+A future separate backend replaces the handlers behind the same `/api`
 contract without touching UI code.
 
 ## Alternatives considered
@@ -30,6 +30,6 @@ contract without touching UI code.
 
 ## Consequences
 
-- One place to apply auth, validation, idempotency and rate limiting.
+- One place to apply auth and validation.
 - The contract is testable with plain HTTP, and webhooks fit the same model.
 - More files per feature than Server Actions; offset by the module template.

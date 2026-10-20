@@ -1,7 +1,7 @@
 import { createBrowserClient } from "@supabase/ssr";
 import { env } from "@/env";
 
-/** Browser Supabase client. Auth session and Storage uploads only; data goes through /api/v1. */
+/** Browser Supabase client. Auth session and Storage uploads only; data goes through /api. */
 export function createClient() {
   return createBrowserClient(
     env.NEXT_PUBLIC_SUPABASE_URL,

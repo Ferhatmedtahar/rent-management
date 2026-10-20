@@ -1,48 +1,47 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import {
-  API_VERSION,
-  type ApiErrorBody,
-  type ApiErrorCode,
-  type ApiSuccessBody,
-  type PageMeta,
-} from "./api-contract";
+import { unstable_rethrow } from "next/navigation";
+import type { ApiErrorBody } from "./api-contract";
+import { HttpError } from "./http-error";
 
-const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
-  BAD_REQUEST: 400,
-  VALIDATION_FAILED: 422,
-  UNAUTHENTICATED: 401,
-  FORBIDDEN: 403,
-  NOT_FOUND: 404,
-  CONFLICT: 409,
-  IDEMPOTENCY_KEY_REUSED: 422,
-  RATE_LIMITED: 429,
-  INTERNAL: 500,
-};
-
-const VERSION_HEADER = { "X-API-Version": API_VERSION };
-
-/** Build a successful v1 response. */
-export function apiSuccess<T>(
-  data: T,
-  options?: { status?: number; meta?: PageMeta },
-): NextResponse<ApiSuccessBody<T>> {
-  const body: ApiSuccessBody<T> = { data, meta: options?.meta };
-  return NextResponse.json(body, {
-    status: options?.status ?? 200,
-    headers: VERSION_HEADER,
-  });
+/** Success response: the bare JSON body of the endpoint, e.g. `json({ id }, 201)`. */
+export function json<T>(data: T, status = 200): NextResponse<T> {
+  return NextResponse.json(data, { status });
 }
 
-/** Build a failed v1 response. Never leak internals in `message`. */
+/** Error response: `{ "error": message }`. Never leak internals in `message`. */
 export function apiError(
-  code: ApiErrorCode,
+  status: number,
   message: string,
-  fields?: Record<string, string[]>,
 ): NextResponse<ApiErrorBody> {
-  return NextResponse.json(
-    { error: { code, message, fields } },
-    { status: STATUS_BY_CODE[code], headers: VERSION_HEADER },
-  );
+  return NextResponse.json({ error: message }, { status });
+}
+
+const GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again.";
+
+/**
+ * Wraps a route handler. `HttpError` becomes `{ error }` with its status; any
+ * other error becomes a generic 500. Only the error message is logged, never
+ * request bodies, headers or payloads (webhook callbacks carry signatures).
+ * Next.js control-flow errors (redirect, notFound, request-time APIs) pass through.
+ */
+export function withErrorHandling<Args extends unknown[]>(
+  handler: (...args: Args) => Response | Promise<Response>,
+): (...args: Args) => Promise<Response> {
+  return async (...args: Args) => {
+    try {
+      return await handler(...args);
+    } catch (error) {
+      if (error instanceof HttpError) {
+        return apiError(error.status, error.message);
+      }
+      unstable_rethrow(error);
+      console.error(
+        "Unhandled API error:",
+        error instanceof Error ? error.message : "non-Error value thrown",
+      );
+      return apiError(500, GENERIC_ERROR_MESSAGE);
+    }
+  };
 }

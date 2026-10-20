@@ -1,6 +1,7 @@
 # 0011. Idempotency keys and webhook deduplication
 
-- Status: Proposed (finalize once the payment spec is known)
+- Status: Accepted for webhook deduplication, locking and unique constraints.
+  The `Idempotency-Key` header part is dropped by 0015 (the brief has no such header).
 - Date: 2026-10-20
 
 ## Context

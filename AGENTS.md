@@ -51,26 +51,26 @@ page.tsx
        -> screens/<x>-screen.tsx        (pure view: props in, markup out)
        -> hooks/use-<x>.ts              (React Query; reusable logic)
             -> services/<x>-api.service.ts   (client service)
-                 -> shared/lib/api-client.ts -> HTTP /api/v1/...
-                      -> app/api/v1/<x>/route.ts   (re-exports only)
+                 -> shared/lib/api-client.ts -> HTTP /api/...
+                      -> app/api/<x>/route.ts      (re-exports only)
                            -> modules/<m>/api/<handler>.ts   (route handler logic)
                                 -> modules/<m>/services/<x>.service.ts (server domain service)
                                      -> modules/<m>/repositories/<x>.repository.ts
                                           -> shared/db/prisma.ts -> PostgreSQL (RLS on)
 ```
 
-- **`/api/v1` is the contract.** All data reads and writes from the UI go
-  through it. A separate backend can replace the route handlers later without
-  touching a component, hook or screen. Never call Prisma or Supabase data APIs
-  from client code.
-- **Everything is `v1`.** New routes live under `app/api/v1/`. A breaking
-  change means a new `/api/v2`, never an edit to v1 semantics
-  (`docs/adr/0006`).
+- **`/api` is the contract, and the brief fixes it** (ASSESSMENT.md section 7,
+  `docs/adr/0015`). Routes live at `app/api/...` exactly as written there, with
+  no version prefix. All data reads and writes from the UI go through it. A
+  separate backend can replace the route handlers later without touching a
+  component, hook or screen. Never call Prisma or Supabase data APIs from
+  client code, except the tenant portal's own reads and phone update, which the
+  brief requires to go through supabase-js + RLS.
 - **Server Actions are the exception**, not the rule: only for flows that must
   run on the server and redirect (e.g. Google sign-in / sign-out). Put them in
-  `modules/<m>/actions/`. Reads and mutations go through `/api/v1`.
+  `modules/<m>/actions/`. Reads and mutations go through `/api`.
 - **Route handlers are thin.** Parse and validate input (zod), authenticate,
-  authorize, call a service, shape the response with `apiSuccess` / `apiError`.
+  authorize, call a service, shape the response with `json` / `apiError`, inside `withErrorHandling`.
   No business logic in `route.ts` or `api/` handlers.
 - **Patterns in use:** container/presentational (screens), adapter (payment
   provider, storage), strategy (rent proration, late fees, payment methods).
@@ -85,7 +85,7 @@ modules/<name>/
 ├── index.ts          # PUBLIC API. The only path other modules may import. Client-safe only.
 ├── actions/          # "use server" actions (rare, see above)
 ├── adapters/         # external-system adapters (payment provider, storage)
-├── api/              # route-handler logic; app/api/v1/** re-exports from here
+├── api/              # route-handler logic; app/api/** re-exports from here
 ├── components/       # PURE presentational components, module-scoped
 ├── constants/        # static data
 ├── features/         # sub-feature folders (own components + schemas)
@@ -157,35 +157,36 @@ React Hook Form + zod. One schema per form, defined once in
 
 - Per-field error messages in plain language, tied to inputs with
   `aria-invalid` / `aria-describedby`.
-- A form-level error banner for server errors (`ApiError.fields` maps server
-  validation errors back onto fields).
+- A form-level error banner for server errors (`ApiError.message` is the
+  server's `{ error }` text; per-field messages come from the shared zod schema).
 - Submit button shows a loading state and is disabled while submitting
   (no double submit).
 - Money inputs use `parseRinggitToSen` on submit; never store a float in form state.
-- Money-moving requests send an `Idempotency-Key` (generated once per user
-  intent, reused on retry).
 
 ---
 
-## 4. API conventions (v1)
+## 4. API conventions
 
-Contract in `shared/lib/api-contract.ts`; helpers in `shared/lib/api-response.ts`.
+The contract is ASSESSMENT.md section 7 (`docs/adr/0015`). Wire constants in
+`shared/lib/api-contract.ts`; helpers in `shared/lib/api-response.ts`
+(`json`, `apiError`, `withErrorHandling`) and `shared/lib/http-error.ts`
+(`HttpError`).
 
-- Base path `/api/v1`. Response header `X-API-Version: 1`.
-- Resources are plural nouns, kebab-case: `/leases`, `/leases/{id}/invoices`,
-  `/invoices/{id}/payments`. Verbs only for true actions
-  (`POST /invoices/{id}/void`).
-- Success: `{ "data": T, "meta"?: { nextCursor, limit } }`.
-- Error: `{ "error": { "code", "message", "fields"? } }` with the HTTP status
-  mapped from `code` (see `STATUS_BY_CODE`). Never leak stack traces, SQL or
-  internal ids in `message`.
-- **Pagination is cursor-based (keyset)**, never offset: `?limit=&cursor=`.
-  Cursors are opaque base64 of the sort key + id; order is always
-  deterministic (`ORDER BY created_at, id`). See `docs/adr/0007`.
-- Payments and any money-moving POST require an `Idempotency-Key` header.
-  Same key + same body returns the stored response; same key + different body
-  is `422 IDEMPOTENCY_KEY_REUSED`. Webhooks dedupe on the provider event id.
-  See `docs/adr/0011` (accepted once the spec is known).
+- Base path `/api`, no version prefix. Paths, request bodies and response
+  shapes are exactly the brief's; our extras (e.g. `/api/health`) follow the
+  same rules.
+- Success: the bare JSON body, e.g. `201 { id }`, `200 { status }`.
+- Error: `{ "error": "message" }`; the HTTP status carries the meaning (400, 401,
+  403, 404, 409, 422, 500). Throw `HttpError(status, message)` from services;
+  `withErrorHandling` maps it, and turns anything unexpected into a generic 500
+  (log the error message only, never bodies or payloads). Never leak stack
+  traces, SQL or internal ids in `message`.
+- 401 no valid login; 403 the caller can see the record but the action is not
+  allowed for their role; 404 the record is in another organization or belongs
+  to another tenant (never reveal it exists).
+- No list pagination and no `Idempotency-Key`: the brief defines neither.
+  Concurrency is handled by the lease row lock and unique constraints.
+  Webhooks dedupe on bill state (docs/database.md 7.4, `docs/adr/0011`).
 - Every route is validated with zod (params, query, body) before any logic.
 
 ---
@@ -223,8 +224,7 @@ Contract in `shared/lib/api-contract.ts`; helpers in `shared/lib/api-response.ts
    overdue boundary. Every new money rule gets a test before the code.
 
 Payments are also guarded by: a state machine (no skipping states), a DB
-transaction with row locks or unique constraints for concurrent writes, and
-idempotency keys. Never trust the amount from the client: recompute it on the
+transaction with row locks or unique constraints for concurrent writes. Never trust the amount from the client: recompute it on the
 server from the invoice.
 
 **Payment rules (partial payments and overpayment):**
@@ -242,13 +242,11 @@ server from the invoice.
   `SELECT ... FROM leases WHERE id = $1 FOR UPDATE` (via `$queryRaw`). A plain
   `findUnique` does not lock; two concurrent payments would both read the same
   balance and both succeed.
-- Idempotency: unique `(actor_id, idempotency_key)`; on conflict return the
-  stored response; store a hash of the request body and reject reuse of a key
-  with a different body (`422 IDEMPOTENCY_KEY_REUSED`). Detect the duplicate by
-  catching the unique-violation, not by check-then-insert.
-- Webhooks: unique `(provider, event_id)`; verify the signature on the RAW body
-  before parsing; insert the event and apply its effect in one transaction;
-  acknowledge duplicates with `200`. Webhooks can arrive out of order: apply by
+- Duplicates and races: detect them with a unique constraint or a conditional
+  `UPDATE ... WHERE status <> 'paid'`, not check-then-insert.
+- Webhooks: a bill creates at most one payment (`UNIQUE(payments.gateway_bill_id)`);
+  verify the signature on the RAW body before parsing; apply the effect in one
+  transaction; acknowledge repeat deliveries with `200` and no effect. Webhooks can arrive out of order: apply by
   comparing against current state (e.g. a `succeeded` event for an already
   refunded payment is recorded but does not reopen it), never assume sequence.
 
@@ -390,8 +388,9 @@ never `process.env`. Add every new variable to `env.ts` and `.env.example`.
 
 | File                                  | Purpose                                               |
 | ------------------------------------- | ----------------------------------------------------- |
-| `shared/lib/api-contract.ts`          | v1 wire types, error codes, base path                 |
-| `shared/lib/api-response.ts`          | `apiSuccess()` / `apiError()` for route handlers      |
+| `shared/lib/api-contract.ts`          | Base path `/api` and the `{ error }` body type        |
+| `shared/lib/api-response.ts`          | `json()` / `apiError()` / `withErrorHandling()`       |
+| `shared/lib/http-error.ts`            | `HttpError(status, message)` thrown by services       |
 | `shared/lib/api-client.ts`            | The only client HTTP entry point (`api.get/post/...`) |
 | `shared/lib/query-client.ts`          | React Query defaults (stale, retry, refetch)          |
 | `shared/lib/query-keys.ts`            | All query keys                                        |
@@ -415,9 +414,7 @@ The hidden tests probe edge cases; ours must cover them before the code exists.
   midnight boundary (UTC already the next day), DST transition days.
 - **Payments:** partial payment, exact payment, overpayment rejected, payment
   against `PAID`/`VOID` rejected, two concurrent payments cannot overpay.
-- **Idempotency:** same key + same body returns the stored response (one row);
-  same key + different body is rejected; double-submit creates one payment.
-- **Webhooks:** duplicate `(provider, event_id)` applied once; out-of-order
+- **Webhooks:** a repeated `paid=true` callback creates one payment; out-of-order
   events do not corrupt state; bad signature rejected before any write.
 - **Authorization:** each role against each endpoint; a tenant cannot read or
   pay another tenant's invoice (expect `NOT_FOUND`/`FORBIDDEN`).

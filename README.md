@@ -24,14 +24,14 @@ pnpm install
 supabase start            # prints the keys; copy them into .env.local
 
 # 3. environment
-cp .env.example .env.local   # fill NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY and SUPABASE_SERVICE_ROLE_KEY
+cp .env.example .env.local   # fill NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY and SUPABASE_SECRET_KEY
 
 # 4. database: apply committed migrations, then seed
 pnpm db:migrate:deploy
 pnpm db:seed
 
 # 5. app
-pnpm dev                  # http://localhost:3000  (health check: /api/v1/health)
+pnpm dev                  # http://localhost:3000  (health check: /api/health)
 ```
 
 ## Run in Docker

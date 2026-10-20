@@ -13,7 +13,7 @@ flowchart LR
   Container --> Hook["useX() hook (React Query)"]
   Container --> View["Screen (pure view)"]
   Hook --> Service["x-api.service.ts"]
-  Service --> API["/api/v1/..."]
+  Service --> API["/api/..."]
 ```
 
 Why: views are trivially testable and reusable; data rules live in one place.

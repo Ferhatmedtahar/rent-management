@@ -1,6 +1,6 @@
 # 0007. Cursor (keyset) pagination
 
-- Status: Accepted
+- Status: Superseded by 0015 (the brief defines no list pagination; revisit for the bonus list search)
 - Date: 2026-10-20
 
 ## Context

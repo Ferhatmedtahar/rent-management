@@ -1,6 +1,6 @@
 # 0008. REST resource naming and response envelope
 
-- Status: Accepted
+- Status: Superseded by 0015
 - Date: 2026-10-20
 
 ## Context

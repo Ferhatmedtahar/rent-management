@@ -10,7 +10,7 @@ shadcn/ui (Radix) and are styled only through these tokens.
 1. **Trust over decoration.** One accent (blue). Color carries meaning (status),
    never ornament. No gradients, no heavy shadows.
 2. **Numbers first.** Amounts are the product. They are aligned, tabular and
-   unambiguous, and always formatted by `formatMoney()` (AGENTS.md section 5).
+   unambiguous, and always formatted by the single money formatter (AGENTS.md section 5).
 3. **Every screen has four states:** loading, error, empty (with a CTA),
    success. A blank screen is a bug.
 4. **Accessible by default.** WCAG AA contrast, visible keyboard focus, labels
@@ -133,11 +133,11 @@ Primitives live in `shared/ui/`; compose them, don't fork them. If
 - Helper text under the field in `label-2`; error text replaces it in `red`,
   linked with `aria-describedby`, input marked `aria-invalid`.
 - Validate on blur, re-validate on change after the first error. Server errors
-  (`ApiError.fields`) map onto fields; a form-level error uses the error banner.
+  (`ApiError.message`) show in the form-level error banner; field messages come from the zod schema.
 - Submit button: label describes the action ("Record payment"), shows a
   spinner and is disabled while submitting. Destructive or irreversible actions
   (void, refund) require a confirmation dialog stating the amount.
-- Money inputs: text input with `inputMode="decimal"`, parse with `toCents`,
+- Money inputs: text input with `inputMode="decimal"`, parse with `parseRinggitToSen`,
   show the formatted value on blur, reject more than 2 decimals with a clear
   message. Never `type="number"` (it drops precision and trims zeros).
 - Date inputs for due dates are date-only; show the property's timezone where it
@@ -145,7 +145,7 @@ Primitives live in `shared/ui/`; compose them, don't fork them. If
 
 ## Money and dates in the UI
 
-- Display money with `formatMoney()` only. Never compute display amounts inline.
+- Display money with the single money formatter only. Never compute display amounts inline.
 - Show status as a badge (soft background + `label`-colored text + icon), e.g.
   `Overdue · 3 days`, derived with the date helpers in the property's timezone.
 - Show absolute dates unambiguously (`May 1, 2026`), relative text only as a
