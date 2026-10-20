@@ -41,3 +41,47 @@ export interface LeaseTx {
 export interface LeaseStore {
   transaction<T>(work: (tx: LeaseTx) => Promise<T>): Promise<T>;
 }
+
+/** What the GET endpoint reads, as plain data (strings and numbers; no Prisma types). */
+export type LeaseDetail = {
+  lease: {
+    id: string;
+    unitId: string;
+    tenantId: string;
+    startDate: string; // YYYY-MM-DD
+    endDate: string; // YYYY-MM-DD
+    monthlyRentSen: number;
+    depositSen: number;
+  };
+  invoices: {
+    id: string;
+    kind: "deposit" | "rent";
+    periodIndex: number | null;
+    periodStart: string | null;
+    periodEnd: string | null;
+    dueDate: string;
+    amountSen: number;
+    /** Sum of this invoice's allocations. */
+    paidSen: number;
+  }[];
+  payments: {
+    id: string;
+    amountSen: number;
+    unappliedSen: number;
+    method: "cash" | "bank_transfer" | "online";
+    status: "pending_verification" | "approved" | "rejected" | "voided";
+    receivedAt: Date;
+  }[];
+};
+
+export interface LeaseReadStore {
+  /**
+   * The lease, scoped to the organization and, when `tenantId` is given, to that
+   * tenant's own lease. Null otherwise (the service answers 404).
+   */
+  findLeaseDetail(
+    leaseId: string,
+    orgId: string,
+    tenantId?: string,
+  ): Promise<LeaseDetail | null>;
+}

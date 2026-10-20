@@ -23,6 +23,7 @@
     "db:migrate:status": "prisma migrate status",
     "seed": "tsx --conditions=react-server prisma/seed.ts",
     "auth:check": "tsx scripts/auth-check.ts",
+    "gateway:check": "tsx --conditions=react-server scripts/gateway-check.ts",
     "payments:check": "tsx --conditions=react-server scripts/payments-check.ts",
     "leases:check": "tsx --conditions=react-server scripts/leases-check.ts",
     "db:check": "tsx --conditions=react-server scripts/db-check.ts",
