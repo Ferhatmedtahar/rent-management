@@ -22,3 +22,9 @@ next-env.d.ts
 .vercel
 coverage
 public
+
+# prisma generated client
+generated
+
+# harness-managed
+.claude

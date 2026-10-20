@@ -40,3 +40,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# prisma generated client
+/generated/
+
+# personal Claude Code settings
+/.claude/settings.local.json
+
+# local-only assessment material (employer test brief + handoff)
+/ASSESSMENT.md
+/HANDOFF.md

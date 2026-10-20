@@ -1,0 +1,12 @@
+// Prisma schema. Models are added once the assessment spec is known.
+// Migrations are written/reviewed/applied by the human only (see AGENTS.md).
+// RLS policies and other raw SQL live in the same migration folders.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
