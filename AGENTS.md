@@ -307,7 +307,7 @@ server from the invoice.
 - RLS helper functions live in a `private` schema, are `SECURITY DEFINER` with a
   fixed `search_path`, and are never created in Supabase's `auth` schema
   (`docs/adr/0010`).
-- Secrets: server-only env vars, never `NEXT_PUBLIC_`. `SUPABASE_SERVICE_ROLE_KEY`
+- Secrets: server-only env vars, never `NEXT_PUBLIC_`. `SUPABASE_SECRET_KEY`
   is used on the server only and never in a code path reachable by a tenant.
 - Use `import "server-only"` in repositories, server services and adapters.
 - Storage: private buckets, signed URLs, size/type checks server-side.
@@ -375,7 +375,8 @@ enforced by commitlint. Branches: `main` (prod) <- `staging` <- `dev` <-
 Validated in `env.ts` (`@t3-oss/env-nextjs` + zod). **Always import `env`**,
 never `process.env`. Add every new variable to `env.ts` and `.env.example`.
 
-- Server: `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- Server: `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_SECRET_KEY`,
+  `GATEWAY_X_SIGNATURE_KEY`, `SEED_PASSWORD` (optional, seed only)
 - Client: `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 

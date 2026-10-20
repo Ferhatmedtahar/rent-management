@@ -14,8 +14,21 @@ export const env = createEnv({
     DATABASE_URL: z.string().url(),
     /** Direct connection used by the Prisma CLI for migrations. */
     DIRECT_URL: z.string().url().optional(),
-    /** Server-only key. Bypasses RLS. Never expose to the client. */
-    SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+    /**
+     * Supabase secret (service role) key. Server-only, bypasses RLS, never
+     * exposed to the browser. From `npx supabase status` ("Secret").
+     */
+    SUPABASE_SECRET_KEY: z.string().min(1),
+    /**
+     * HMAC-SHA256 key that signs payment-gateway webhooks (x_signature).
+     * Local value: test_x_signature_key (the brief's test vector).
+     */
+    GATEWAY_X_SIGNATURE_KEY: z.string().min(1),
+    /**
+     * Shared password the seed gives every seeded account. Used only by
+     * `npm run seed`, so optional at runtime. Local-only value.
+     */
+    SEED_PASSWORD: z.string().min(8).optional(),
   },
   client: {
     NEXT_PUBLIC_SITE_URL: z.string().url(),
@@ -26,7 +39,9 @@ export const env = createEnv({
     NODE_ENV: process.env.NODE_ENV,
     DATABASE_URL: process.env.DATABASE_URL,
     DIRECT_URL: process.env.DIRECT_URL,
-    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
+    GATEWAY_X_SIGNATURE_KEY: process.env.GATEWAY_X_SIGNATURE_KEY,
+    SEED_PASSWORD: process.env.SEED_PASSWORD,
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
