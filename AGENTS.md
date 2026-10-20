@@ -286,24 +286,40 @@ server from the invoice.
 | Boundary              | Required                                                                         |
 | --------------------- | -------------------------------------------------------------------------------- |
 | Browser -> route      | zod-validate params, query, body. Reject unknown fields. Never trust client math |
-| Route -> service      | authenticate (Supabase session), then **authorize against the resource**         |
+| Route -> service      | `authenticate(request)`, then `requireRole`, then **scope by the actor's org**   |
 | Service -> repository | repositories take an actor/tenant scope; no unscoped `findMany` on tenant data   |
 | Repository -> DB      | DB constraints (NOT NULL, CHECK, UNIQUE, FK) are the last line; RLS is on        |
-| Webhook -> route      | verify signature, dedupe by event id, then process idempotently                  |
+| Webhook -> route      | verify signature on the raw body, then process idempotently (bill state)         |
 | Server -> provider    | adapters validate provider responses with zod before use                         |
 
 - **Prisma bypasses RLS** (it connects as the table owner). Authorization is
   therefore enforced in the service layer, and RLS is defense-in-depth for the
   Supabase client and Storage (`docs/adr/0010`). Never assume RLS protects a
   Prisma query.
-- Roles: `manager`, `staff`, `tenant`. Check role **and** ownership
-  (a tenant reads only their own lease and invoices; staff only properties
-  they are assigned to, unless the spec says otherwise).
-- **Role source of truth is the database profile**, read per request in the
-  service layer. Never trust a role from the request body, `user_metadata`
-  (user-editable) or a stale JWT claim alone. New sign-ups are always `tenant`;
-  staff/manager are created only by a manager through an authenticated
-  endpoint using the service role, never with a shared or hardcoded password.
+- Roles: `manager`, `staff`, `tenant`. Check role **and** ownership: staff and
+  managers act within their one organization; a tenant reads only their own
+  leases, invoices and payments.
+- **Authentication and authorization live in `modules/auth`** (`docs/adr/0016`).
+  Every route handler starts with `authenticate(request)` and uses
+  `requireRole` / `notFound` from `@/modules/auth/api/guards`:
+  - `authenticate` accepts `Authorization: Bearer <access token>` **or** the
+    session cookie, verified with `auth.getUser()` against the Auth server.
+    **Never `getSession()`**, which trusts the cookie unchecked.
+  - **Role and organization come only from the database**: `memberships`
+    (manager | staff) first, else `tenants.user_id` (tenant). Never from
+    `user_metadata`, `app_metadata`, JWT claims, headers or the request body.
+  - **401** no valid login. **403** the caller can see the record but their role
+    may not do this (`requireRole`). **404** the record is in another
+    organization or is another tenant's (`notFound()`): same response as a
+    missing record, so existence is never revealed.
+  - IDs in request bodies and paths are untrusted: resolve every referenced
+    record **within the actor's organization** (and a tenant's own records) and
+    answer `notFound()` otherwise; never trust an `orgId` from the client.
+  - Order in a handler: authenticate -> validate input (zod) -> authorize the
+    role -> load the record scoped by `actor.orgId` -> act.
+- Accounts: sign-up is disabled (`config.toml`). Staff, managers and tenants are
+  created only by the seed or by a manager through an authenticated endpoint
+  using the secret key (`shared/supabase/admin.ts`), never with a hardcoded password.
 - `proxy.ts` (Next 16; not `middleware.ts`) does fast redirects for
   unauthenticated users only. It is UX, not authorization.
 - RLS helper functions live in a `private` schema, are `SECURITY DEFINER` with a
