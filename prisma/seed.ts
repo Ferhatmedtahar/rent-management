@@ -100,6 +100,12 @@ async function main(): Promise<void> {
     await import("@/modules/leases/services/lease.service");
   const { leaseStore } =
     await import("@/modules/leases/repositories/lease.repository");
+  const { recordPayment } =
+    await import("@/modules/payments/services/payment.service");
+  const { paymentStore } =
+    await import("@/modules/payments/repositories/payment.repository");
+  const { slipStorage } =
+    await import("@/modules/payments/adapters/slip-storage.adapter");
 
   try {
     const password = env.SEED_PASSWORD;
@@ -257,6 +263,7 @@ async function main(): Promise<void> {
       },
     ];
     let totalInvoices = 0;
+    let aisyahLeaseId = "";
     for (const plan of leasePlans) {
       const unit = await prisma.unit.findFirstOrThrow({
         where: { orgId: plan.who.orgId, name: plan.unit },
@@ -278,6 +285,7 @@ async function main(): Promise<void> {
         orderBy: { periodIndex: "desc" },
       });
       totalInvoices += count;
+      if (plan.tenant === "Aisyah Rahman") aisyahLeaseId = id;
       const ok =
         count === plan.expected && Number(last.amountSen) === plan.lastRent;
       console.log(
@@ -293,6 +301,34 @@ async function main(): Promise<void> {
       throw new SeedError(
         `invoice total ${totalInvoices} != 37. ${RESET_HINT}`,
       );
+
+    // 3c. Aisyah's cash payment (RM 3,000, received 2026-01-31 10:00 MYT), recorded by the
+    // manager through the same service the API uses. The bank transfer comes with approval.
+    const cash = await recordPayment(
+      { store: paymentStore, slips: slipStorage },
+      northwindManager,
+      aisyahLeaseId,
+      {
+        amountSen: 300000,
+        method: "cash",
+        receivedAt: "2026-01-31T10:00:00+08:00",
+      },
+    );
+    const allocations = await prisma.paymentAllocation.findMany({
+      where: { paymentId: cash.id },
+      include: { invoice: true },
+    });
+    const cashOk =
+      cash.status === "approved" &&
+      allocations.length === 1 &&
+      allocations[0]?.invoice.kind === "deposit" &&
+      Number(allocations[0]?.amountSen) === 300000;
+    console.log(
+      `${cashOk ? "OK  " : "FAIL"} Aisyah cash payment ${cash.status}, allocated to ${allocations.map((a) => `${a.invoice.kind} ${a.amountSen}`).join(", ")}`,
+    );
+    if (!cashOk) {
+      throw new SeedError(`Aisyah's cash payment is wrong. ${RESET_HINT}`);
+    }
 
     // 4. Verify: every account can sign in with the PUBLISHABLE key.
     const publicClient = createClient(
