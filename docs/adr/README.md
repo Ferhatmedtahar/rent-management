@@ -18,6 +18,6 @@ add it below.
 | [0009](0009-trust-boundaries.md)                 | No trust at any boundary                                 | Accepted |
 | [0010](0010-prisma-bypasses-rls.md)              | Prisma bypasses RLS, so authorize in the service layer   | Accepted |
 | [0011](0011-idempotency-and-webhooks.md)         | Idempotency keys and webhook deduplication               | Proposed |
-| [0012](0012-money-as-integer-cents.md)           | Money as integer cents in one module                     | Accepted |
+| [0012](0012-money-as-integer-cents.md)           | Money as integer sen in one pure module                  | Accepted |
 | [0013](0013-human-run-migrations-local-stack.md) | Human-run migrations on a local Supabase stack           | Accepted |
 | [0014](0014-dates-and-timezones.md)              | Date-only due dates, UTC timestamps, property timezone   | Accepted |

@@ -26,7 +26,7 @@ External systems sit behind an interface we own, so providers are swappable and
 tests use a fake. Examples: `PaymentProvider` (online provider vs. a mock) and
 `StorageAdapter` (Supabase Storage). Adapters live in `modules/<m>/adapters/`,
 are the only code allowed to call `fetch` to a third party, validate provider
-responses with zod, and convert money through `money.ts`.
+responses with zod, and convert money through `lib/billing.ts`.
 
 ```mermaid
 classDiagram
@@ -46,7 +46,7 @@ Behaviour that varies by rule is a strategy selected at runtime instead of
 nested `if/else`. Candidates: rent proration, late-fee calculation, and
 payment-method handling (cash, bank transfer, online). Each strategy is a small
 pure unit in `modules/<m>/strategies/`, covered by tests; money math inside
-still goes through `money.ts`.
+still goes through `lib/billing.ts`.
 
 ```mermaid
 classDiagram

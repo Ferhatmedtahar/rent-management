@@ -31,7 +31,7 @@ commands for graders). Fix the docs when you change a rule, and supersede the AD
   behaviour, not by printing secrets.
 - **pnpm only.** No `npm`, `npx`, `yarn`.
 - **Money:** before writing anything that touches an amount, re-read AGENTS.md
-  section 5. All math goes through `shared/lib/money.ts`. Write the test first.
+  section 5. All math goes through `lib/billing.ts`. Write the test first.
 - **Server state:** always React Query via a hook in the module's `hooks/`.
   Never `useEffect` + `fetch`. Invalidate on mutation.
 - **No trust at any boundary** (AGENTS.md section 7): validate with zod and

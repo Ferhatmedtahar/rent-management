@@ -74,7 +74,7 @@ const perModule = MODULE_NAMES.flatMap((moduleName) => [
 ]);
 
 // ── Money, env and network guards ────────────────────────────────────────────
-const MONEY_FILE = "shared/lib/money.ts";
+const MONEY_FILE = "lib/billing.ts";
 
 const moneyMathRule = {
   "no-restricted-properties": [
@@ -89,11 +89,11 @@ const moneyMathRule = {
     "error",
     {
       selector: "CallExpression[callee.property.name='toFixed']",
-      message: `Do not format money with toFixed. Use formatMoney() from ${MONEY_FILE}.`,
+      message: `Do not format money with toFixed. Format sen with the shared money formatter; never toFixed.`,
     },
     {
       selector: "CallExpression[callee.name=/^(parseFloat)$/]",
-      message: `Do not parse money with parseFloat. Use toCents() from ${MONEY_FILE}.`,
+      message: `Do not parse money with parseFloat. Use parseRinggitToSen() from ${MONEY_FILE}.`,
     },
     {
       selector: "MemberExpression[object.name='process'][property.name='env']",
@@ -133,6 +133,41 @@ const eslintConfig = defineConfig([
     rules: {
       "no-restricted-properties": "off",
       "no-restricted-syntax": "off",
+    },
+  },
+  // lib/billing.ts is pure and timezone-proof: it may import nothing and may not
+  // use local-time Date methods, Intl or the current time. It receives `now`.
+  {
+    files: [MONEY_FILE],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: ".*",
+              message: `${MONEY_FILE} must stay pure: no imports at all.`,
+            },
+          ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "MemberExpression[property.name=/^(getDate|getDay|getFullYear|getHours|getMinutes|getMonth|getSeconds|getMilliseconds|getTimezoneOffset|setDate|setFullYear|setHours|setMinutes|setMonth|setSeconds|setMilliseconds|toLocaleDateString|toLocaleString|toLocaleTimeString|toDateString|toTimeString)$/]",
+          message:
+            "Local-time Date APIs depend on the machine's TZ. Use integer day arithmetic.",
+        },
+        {
+          selector: "NewExpression[callee.name='Date']",
+          message: "Do not construct Dates here; `now` is passed in.",
+        },
+        {
+          selector: "Identifier[name='Intl']",
+          message: "Intl depends on the machine's locale and TZ.",
+        },
+      ],
     },
   },
   // Network: only the API client and adapters may call fetch directly.

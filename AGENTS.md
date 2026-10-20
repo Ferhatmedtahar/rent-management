@@ -23,7 +23,7 @@ stack in Docker. Deployment target: Docker (`Dockerfile`).
 1. **No `any`.** Use `unknown` and narrow. ESLint fails the build.
 2. **Never trust any boundary.** Validate and authorize at every layer
    (section 7). A check in the layer above does not excuse the layer below.
-3. **Money is integer cents, handled only by `shared/lib/money.ts`** (section 5).
+3. **Money is integer sen, handled only by `lib/billing.ts`** (section 5).
 4. **Never run:** `pnpm dev` / `next dev` (ask the user), database migrations,
    `prisma migrate *`, `prisma db *`, `supabase db *`, `supabase start|stop|reset`.
    You write SQL and Prisma schema; **the user reviews and runs it.**
@@ -161,7 +161,7 @@ React Hook Form + zod. One schema per form, defined once in
   validation errors back onto fields).
 - Submit button shows a loading state and is disabled while submitting
   (no double submit).
-- Money inputs use `toCents` on submit; never store a float in form state.
+- Money inputs use `parseRinggitToSen` on submit; never store a float in form state.
 - Money-moving requests send an `Idempotency-Key` (generated once per user
   intent, reused on retry).
 
@@ -192,31 +192,35 @@ Contract in `shared/lib/api-contract.ts`; helpers in `shared/lib/api-response.ts
 
 ## 5. Money (strict, no exceptions)
 
-1. **Store and calculate all money as integer cents** (`$19.99` = `1999`).
-   - DB columns: `integer` / `bigint`, **never** `float`, `real`,
-     `double precision`, or `numeric` for money amounts.
+1. **Store and calculate all money as integer sen** (RM 19.99 = `1999`;
+   1 ringgit = 100 sen).
+   - DB columns: `bigint`, **never** `float`, `real`, `double precision`, or
+     `numeric` for money amounts.
    - Never use JavaScript floats for money (no `19.99`, no `price * 1.075`).
-2. **ONE file, `shared/lib/money.ts`, is the only place money math and rounding
-   happens.** It exports:
-   - `toCents(input)`: `"19.99"` -> `1999`
-   - `formatMoney(cents)`: `1999` -> `"$19.99"`
-   - `applyPercent(cents, percent)`: tax, fees, late fees (rounds the result)
-   - `prorate(cents, daysUsed, daysInMonth)`: partial-month rent (rounds)
-   - `splitEvenly(cents, parts)`: parts always sum to the total
-     (`1000` split 3 = `[334, 333, 333]`, never `[333, 333, 333]`)
-3. **Rounding rule: round half up to the nearest whole cent** (`149.5` -> `150`).
-   Written once, in `money.ts` only, with a comment. **Round only at the end**
-   of a calculation, never in the middle.
+2. **ONE file, `lib/billing.ts`, is the only place money math and rounding
+   happens.** It is pure (no imports, no I/O, no local-time Date methods) and
+   exports exactly the brief's three functions:
+   - `generateSchedule(lease)`: deposit + monthly rent invoices; the last,
+     cut-short period is prorated with exact integer math.
+   - `invoiceStatus(invoice, now)`: paid / overdue / partially_paid / unpaid,
+     overdue by the Malaysia calendar date.
+   - `parseRinggitToSen(input)`: `"1,500.50"` -> `150050`.
+     Displaying sen as RM goes through one formatter, added with the UI (not in
+     `lib/billing.ts`), under the same no-float rule.
+3. **Rounding rule: round half up to the nearest whole sen** (`50014.5` ->
+   `50015`). Written once, in `lib/billing.ts` only, with a comment. **Round
+   only at the end** of a calculation, never in the middle.
 4. **No inline money math anywhere else.** No `Math.round/floor/ceil/trunc`,
    `toFixed`, `parseFloat`, and no multiplying or dividing money in
-   components, routes or services (ESLint-enforced). Call `money.ts`.
-5. **Money crosses boundaries only through `money.ts`:**
-   - user input -> `toCents`
-   - display -> `formatMoney`
-   - payment provider in/out -> converted via `money.ts` in the adapter
-6. **`money.ts` has unit tests** (written first): rounding
-   (`149.925` cents -> `150`), splitting (parts sum to the total), proration.
-   Every new money rule gets a test before the code.
+   components, routes or services (ESLint-enforced). Call `lib/billing.ts`.
+5. **Money crosses boundaries only through `lib/billing.ts`:**
+   - user input -> `parseRinggitToSen`
+   - display -> the single formatter (see 2)
+   - payment provider in/out -> sen integers, converted once in the adapter
+6. **`lib/billing.ts` has unit tests** (written first, `lib/billing.test.ts`),
+   run under three timezones with `pnpm test:tz`: the brief's worked examples,
+   half-up rounding (`50014.5` -> `50015`), month-end anchors, leap years, the
+   overdue boundary. Every new money rule gets a test before the code.
 
 Payments are also guarded by: a state machine (no skipping states), a DB
 transaction with row locks or unique constraints for concurrent writes, and
@@ -226,16 +230,16 @@ server from the invoice.
 **Payment rules (partial payments and overpayment):**
 
 - A payment amount must be an integer `> 0`. The server computes
-  `outstanding = invoice.amount_cents - sum(successful payments)` and rejects
+  `outstanding = invoice.amount_sen - sum(allocations)` and rejects
   any payment `> outstanding` with `CONFLICT` (no silent overpayment, no
   unapplied credit unless the spec says so).
 - Partial payments are allowed; invoice status derives from the totals
   (`PENDING` -> `PARTIALLY_PAID` -> `PAID`), never from the client.
-- `paid_cents` on the invoice is a denormalised total. It is updated in the
-  same transaction as the payment insert, and a DB `CHECK`
-  (`paid_cents <= amount_cents`) is the last line of defence.
-- Apply a payment inside ONE transaction that first locks the invoice row:
-  `SELECT ... FROM invoices WHERE id = $1 FOR UPDATE` (via `$queryRaw`). A plain
+- There is no stored `paid` column: an invoice's paid amount is the sum of its
+  `payment_allocations` (docs/database.md section 7.1). A deferred DB trigger
+  (migration 3, optional) is the last line of defence against over-allocation.
+- Apply a payment inside ONE transaction that first locks the lease row:
+  `SELECT ... FROM leases WHERE id = $1 FOR UPDATE` (via `$queryRaw`). A plain
   `findUnique` does not lock; two concurrent payments would both read the same
   balance and both succeed.
 - Idempotency: unique `(actor_id, idempotency_key)`; on conflict return the
@@ -326,7 +330,7 @@ server from the invoice.
   Prisma CLI connects with `DIRECT_URL`; the app uses `DATABASE_URL`.
 - Every table: `id` (uuid), `created_at`, `updated_at`, explicit FKs with
   `ON DELETE` behaviour chosen deliberately (RESTRICT for financial history),
-  CHECK constraints for money (`amount_cents >= 0`) and enums as Postgres enums.
+  CHECK constraints for money (`amount_sen >= 0`) and enums as Postgres enums.
 - Never hard-delete financial records. Void / reverse with a new row.
 - Seed script `prisma/seed.ts` must be idempotent and run on an empty DB.
 
@@ -391,7 +395,7 @@ never `process.env`. Add every new variable to `env.ts` and `.env.example`.
 | `shared/lib/api-client.ts`            | The only client HTTP entry point (`api.get/post/...`) |
 | `shared/lib/query-client.ts`          | React Query defaults (stale, retry, refetch)          |
 | `shared/lib/query-keys.ts`            | All query keys                                        |
-| `shared/lib/money.ts`                 | The only place money math happens                     |
+| `lib/billing.ts`                      | The only place money math happens (pure, TZ-proof)    |
 | `shared/db/prisma.ts`                 | The Prisma client (repositories only)                 |
 | `shared/supabase/{server,browser}.ts` | Supabase clients (auth session, Storage)              |
 | `modules/health/`                     | Reference module: copy its shape for new modules      |
@@ -404,9 +408,9 @@ never `process.env`. Add every new variable to `env.ts` and `.env.example`.
 
 The hidden tests probe edge cases; ours must cover them before the code exists.
 
-- **Money:** half-up rounding (`149.925` cents -> `150`), `splitEvenly` sums to
-  the total, proration across month lengths, `applyPercent` rounding, `toCents`
-  rejecting `19.999`, `"abc"` and negatives where invalid.
+- **Money:** half-up rounding (`50014.5` sen -> `50015`), proration across month
+  lengths, `parseRinggitToSen` rejecting `1.234`, `"abc"`, `-5` and values above
+  `Number.MAX_SAFE_INTEGER`.
 - **Dates:** Jan 31 + 1 month, leap-year Feb, overdue at the property-timezone
   midnight boundary (UTC already the next day), DST transition days.
 - **Payments:** partial payment, exact payment, overpayment rejected, payment

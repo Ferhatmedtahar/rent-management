@@ -10,6 +10,7 @@
     "lint:fix": "eslint . --fix",
     "type-check": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
+    "test:tz": "TZ=UTC vitest run --passWithNoTests && TZ=Asia/Kuala_Lumpur vitest run --passWithNoTests && TZ=America/New_York vitest run --passWithNoTests",
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
