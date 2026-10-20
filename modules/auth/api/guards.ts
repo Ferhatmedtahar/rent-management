@@ -18,7 +18,7 @@ import type { Actor } from "../types/actor.types";
  *   403  requireRole()    visible record, action not allowed for the role
  *   404  notFound()       other organization's or other tenant's record
  */
-export { notFound, requireRole } from "../services/auth.service";
+export { notFound, requireRole } from "./policy";
 
 export function authenticate(request: Request): Promise<Actor> {
   return authenticateRequest(request.headers, {

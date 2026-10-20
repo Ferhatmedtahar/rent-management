@@ -3,8 +3,8 @@
  * freshly reset database.
  *
  * Creates organizations, the 7 auth users, memberships, tenants and units.
- * It creates NO leases, invoices or payments: those must go through the lease
- * and payment services so the seeded data is exactly what the app produces.
+ * Leases (and their invoices) go through the SAME createLease service the API
+ * uses, so the seeded data is exactly what the app produces. NO payments yet.
  *
  * Order matters. Auth users come first (the Auth admin API cannot join a
  * database transaction); every domain row is then written in ONE Prisma
@@ -16,6 +16,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { config } from "dotenv";
+import type { Actor } from "@/modules/auth";
 
 // Same files Next.js uses. Loaded before the app's env module is imported.
 config({ path: ".env.local" });
@@ -95,6 +96,10 @@ async function main(): Promise<void> {
   const { env } = await import("@/env");
   const { prisma } = await import("@/shared/db/prisma");
   const { createAdminClient } = await import("@/shared/supabase/admin");
+  const { createLease } =
+    await import("@/modules/leases/services/lease.service");
+  const { leaseStore } =
+    await import("@/modules/leases/repositories/lease.repository");
 
   try {
     const password = env.SEED_PASSWORD;
@@ -190,6 +195,104 @@ async function main(): Promise<void> {
       );
     }
     console.log("created organizations, memberships, tenants and units");
+
+    // 3b. Leases of the brief (section 2), through the SAME service the API uses,
+    // acting as each organization's manager. Invoices come from generateSchedule.
+    const managerOf = async (email: string): Promise<Actor> => {
+      const membership = await prisma.membership.findUniqueOrThrow({
+        where: { userId: userIds.get(email) ?? "" },
+      });
+      return {
+        userId: membership.userId,
+        orgId: membership.orgId,
+        role: membership.role,
+      };
+    };
+    const northwindManager = await managerOf("manager@northwind.test");
+    const betaManager = await managerOf("manager@beta.test");
+    const leasePlans = [
+      {
+        who: northwindManager,
+        unit: "A-12-3",
+        tenant: "Aisyah Rahman",
+        startDate: "2026-01-31",
+        endDate: "2026-07-15",
+        monthlyRentSen: 150000,
+        depositSen: 300000,
+        expected: 7,
+        lastRent: 77419,
+      },
+      {
+        who: northwindManager,
+        unit: "B-05-1",
+        tenant: "Ben Lim",
+        startDate: "2026-01-01",
+        endDate: "2026-04-15",
+        monthlyRentSen: 100029,
+        depositSen: 0,
+        expected: 4,
+        lastRent: 50015,
+      },
+      {
+        who: northwindManager,
+        unit: "C-01-7",
+        tenant: "Probe Tenant",
+        startDate: "2026-02-28",
+        endDate: "2027-02-27",
+        monthlyRentSen: 200000,
+        depositSen: 400000,
+        expected: 13,
+        lastRent: 200000,
+      },
+      {
+        who: betaManager,
+        unit: "KL-1",
+        tenant: "Chen Wei",
+        startDate: "2026-03-15",
+        endDate: "2027-03-14",
+        monthlyRentSen: 220000,
+        depositSen: 440000,
+        expected: 13,
+        lastRent: 220000,
+      },
+    ];
+    let totalInvoices = 0;
+    for (const plan of leasePlans) {
+      const unit = await prisma.unit.findFirstOrThrow({
+        where: { orgId: plan.who.orgId, name: plan.unit },
+      });
+      const tenant = await prisma.tenant.findFirstOrThrow({
+        where: { orgId: plan.who.orgId, fullName: plan.tenant },
+      });
+      const { id } = await createLease(leaseStore, plan.who, {
+        unitId: unit.id,
+        tenantId: tenant.id,
+        startDate: plan.startDate,
+        endDate: plan.endDate,
+        monthlyRentSen: plan.monthlyRentSen,
+        depositSen: plan.depositSen,
+      });
+      const count = await prisma.invoice.count({ where: { leaseId: id } });
+      const last = await prisma.invoice.findFirstOrThrow({
+        where: { leaseId: id, kind: "rent" },
+        orderBy: { periodIndex: "desc" },
+      });
+      totalInvoices += count;
+      const ok =
+        count === plan.expected && Number(last.amountSen) === plan.lastRent;
+      console.log(
+        `${ok ? "OK  " : "FAIL"} lease ${plan.unit} ${plan.tenant}: ${count} invoices (expected ${plan.expected}), last rent ${last.amountSen} sen (expected ${plan.lastRent})`,
+      );
+      if (!ok)
+        throw new SeedError(
+          `lease ${plan.unit} does not match the brief. ${RESET_HINT}`,
+        );
+    }
+    console.log(`total invoices: ${totalInvoices} (expected 37)`);
+    if (totalInvoices !== 37)
+      throw new SeedError(
+        `invoice total ${totalInvoices} != 37. ${RESET_HINT}`,
+      );
 
     // 4. Verify: every account can sign in with the PUBLISHABLE key.
     const publicClient = createClient(
