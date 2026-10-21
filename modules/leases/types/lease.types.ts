@@ -96,3 +96,38 @@ export type LeaseSummary = {
   monthlyRentSen: number;
   depositSen: number;
 };
+
+export type LeaseInvoiceItem = {
+  id: string;
+  kind: "deposit" | "rent";
+  periodIndex: number | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  dueDate: string; // YYYY-MM-DD
+  amountSen: number;
+  paidSen: number;
+  status: "paid" | "partially_paid" | "unpaid" | "overdue";
+};
+
+export type LeasePaymentItem = {
+  id: string;
+  amountSen: number;
+  unappliedSen: number;
+  method: "cash" | "bank_transfer" | "online";
+  status: "pending_verification" | "approved" | "rejected" | "voided";
+  receivedAt: string; // ISO with +08:00
+};
+
+export type LeaseDetailResponse = {
+  lease: {
+    id: string;
+    unitId: string;
+    tenantId: string;
+    startDate: string; // YYYY-MM-DD
+    endDate: string; // YYYY-MM-DD
+    monthlyRentSen: number;
+    depositSen: number;
+  };
+  invoices: LeaseInvoiceItem[];
+  payments: LeasePaymentItem[];
+};
