@@ -1,9 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Self-contained server bundle for the Docker image (see Dockerfile).
+  output: "standalone",
   turbopack: {
     rules: {
       "*.css": {

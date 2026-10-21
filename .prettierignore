@@ -22,3 +22,12 @@ next-env.d.ts
 .vercel
 coverage
 public
+
+# prisma generated client
+generated
+
+# harness-managed
+.claude
+
+# the brief's gateway simulator, kept byte-for-byte
+gateway-sim.mjs
