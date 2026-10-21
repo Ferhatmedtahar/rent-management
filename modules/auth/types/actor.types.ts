@@ -1,5 +1,11 @@
 export type Role = "manager" | "staff" | "tenant";
 
+export type MeResponse = {
+  userId: string;
+  role: Role;
+  orgId: string;
+};
+
 /**
  * Who is calling, as decided by the DATABASE (memberships / tenants.user_id).
  * Never built from user_metadata, app_metadata, JWT claims or the request.

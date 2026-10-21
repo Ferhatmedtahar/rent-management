@@ -13,4 +13,27 @@ export const queryKeys = {
     bill: (billId: string) =>
       [...queryKeys.gateway.all, "bill", billId] as const,
   },
+  me: {
+    all: ["me"] as const,
+    info: () => [...queryKeys.me.all, "info"] as const,
+  },
+  leases: {
+    all: ["leases"] as const,
+    list: () => [...queryKeys.leases.all, "list"] as const,
+  },
+  lease: (id: string) => ["leases", "detail", id] as const,
+  reports: {
+    all: ["reports"] as const,
+    collections: (from: string, to: string) =>
+      [...queryKeys.reports.all, "collections", from, to] as const,
+  },
+  overdue: {
+    all: ["overdue"] as const,
+    count: () => [...queryKeys.overdue.all, "count"] as const,
+  },
+  tenantPortal: {
+    all: ["tenantPortal"] as const,
+    data: (userId?: string) =>
+      [...queryKeys.tenantPortal.all, "data", userId ?? ""] as const,
+  },
 } as const;

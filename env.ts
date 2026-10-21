@@ -35,18 +35,13 @@ export const env = createEnv({
     NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
   },
-  runtimeEnv: {
-    NODE_ENV: process.env.NODE_ENV,
-    DATABASE_URL: process.env.DATABASE_URL,
-    DIRECT_URL: process.env.DIRECT_URL,
-    SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
-    GATEWAY_X_SIGNATURE_KEY: process.env.GATEWAY_X_SIGNATURE_KEY,
-    SEED_PASSWORD: process.env.SEED_PASSWORD,
+  experimental__runtimeEnv: {
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   },
+
   // CI/Docker image builds run without a database; skip validation there only.
   skipValidation: process.env.SKIP_ENV_VALIDATION === "true",
   emptyStringAsUndefined: true,
