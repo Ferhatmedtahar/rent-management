@@ -1,0 +1,367 @@
+// Prisma schema. HAND-WRITTEN TO MATCH the SQL migrations in supabase/migrations/.
+// The migrations (20261020220000_schema.sql, 20261020230000_security.sql) are the
+// SOURCE OF TRUTH. This file is never used to create or change the database:
+// no `prisma migrate`, no `prisma db push`. Verify drift by hand with
+// `pnpm exec prisma validate` and, if in doubt, `prisma db pull` into a scratch file.
+//
+// What Prisma cannot express (and therefore lives only in the migrations; see
+// docs/database.md section 5):
+//   - CHECK constraints, partial unique indexes, the lease-overlap EXCLUDE constraint
+//   - triggers (updated_at, audit_log append-only), RLS policies, grants, Storage
+//   - the foreign keys to auth.users (memberships.user_id, tenants.user_id): that
+//     schema is not modeled, so those columns are plain uuid scalars
+//   - the btree_gist extension and the `private` schema
+//
+// Conventions: money is BigInt sen (JS bigint; never Number-multiply it, use
+// lib/billing.ts). Calendar dates are @db.Date (Prisma returns UTC midnight:
+// format with toISOString().slice(0, 10)). Instants are @db.Timestamptz.
+// Every relation is ON DELETE RESTRICT / ON UPDATE NO ACTION, as in the DB.
+// Composite FKs (x_id, org_id) exist so a row can never reference another
+// organization's record; always filter by the caller's org_id in repositories.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums. Values equal the DB labels and the API contract strings, so no @map
+// on values is needed. invoice_kind order matters: deposit sorts before rent.
+// ---------------------------------------------------------------------------
+
+enum MembershipRole {
+  manager
+  staff
+
+  @@map("membership_role")
+}
+
+enum InvoiceKind {
+  deposit
+  rent
+
+  @@map("invoice_kind")
+}
+
+enum PaymentMethod {
+  cash
+  bank_transfer
+  online
+
+  @@map("payment_method")
+}
+
+enum PaymentStatus {
+  pending_verification
+  approved
+  rejected
+  voided
+
+  @@map("payment_status")
+}
+
+enum BillStatus {
+  pending
+  paid
+  failed
+
+  @@map("bill_status")
+}
+
+// ---------------------------------------------------------------------------
+// organizations
+// Not expressible: CHECK name not blank.
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  memberships Membership[]
+  units       Unit[]
+  tenants     Tenant[]
+  leases      Lease[]
+  auditLogs   AuditLog[]
+
+  @@map("organizations")
+}
+
+// ---------------------------------------------------------------------------
+// memberships: staff and managers. user_id (PK) = exactly one organization.
+// user_id -> auth.users(id) ON DELETE RESTRICT exists in the DB only.
+// Not expressible: RLS (select own organization).
+// ---------------------------------------------------------------------------
+
+model Membership {
+  userId    String         @id @map("user_id") @db.Uuid
+  orgId     String         @map("org_id") @db.Uuid
+  role      MembershipRole
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "memberships_org_id_fkey")
+
+  leasesCreated    Lease[]   @relation("LeaseCreatedBy")
+  paymentsRecorded Payment[] @relation("PaymentRecordedBy")
+  paymentsReviewed Payment[] @relation("PaymentReviewedBy")
+  paymentsVoided   Payment[] @relation("PaymentVoidedBy")
+
+  @@unique([userId, orgId], map: "memberships_user_org_key")
+  @@index([orgId], map: "memberships_org_id_idx")
+  @@map("memberships")
+}
+
+// ---------------------------------------------------------------------------
+// units
+// Not expressible: CHECK name not blank; RLS.
+// ---------------------------------------------------------------------------
+
+model Unit {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "units_org_id_fkey")
+  leases       Lease[]
+
+  @@unique([orgId, name], map: "units_org_name_key")
+  @@unique([id, orgId], map: "units_id_org_key")
+  @@map("units")
+}
+
+// ---------------------------------------------------------------------------
+// tenants: one row per login. user_id -> auth.users(id) is DB-only.
+// updated_at is maintained by the private.set_updated_at() trigger.
+// A tenant may UPDATE only `phone` through the Data API (column grant + RLS).
+// Not expressible: CHECKs (names/email not blank, phone shape and length),
+// the updated_at trigger, RLS, column-level grants.
+// ---------------------------------------------------------------------------
+
+model Tenant {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  userId    String   @unique(map: "tenants_user_id_key") @map("user_id") @db.Uuid
+  fullName  String   @map("full_name")
+  email     String
+  phone     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization  @relation(fields: [orgId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "tenants_org_id_fkey")
+  leases       Lease[]
+  gatewayBills GatewayBill[]
+
+  @@unique([id, orgId], map: "tenants_id_org_key")
+  @@index([orgId], map: "tenants_org_id_idx")
+  @@map("tenants")
+}
+
+// ---------------------------------------------------------------------------
+// leases. end_date is inclusive. created_by is a membership of the same org.
+// Not expressible: the EXCLUDE USING gist constraint `leases_no_overlap`
+// (unit_id =, daterange(start_date, end_date, '[]') &&): overlap surfaces as
+// SQLSTATE 23P01 -> map to HTTP 409. CHECKs (dates ordered, rent > 0, deposit
+// >= 0, both <= 1e12 sen). Lease length cap is app validation only. RLS.
+// ---------------------------------------------------------------------------
+
+model Lease {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  unitId         String   @map("unit_id") @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  startDate      DateTime @map("start_date") @db.Date
+  endDate        DateTime @map("end_date") @db.Date
+  monthlyRentSen BigInt   @map("monthly_rent_sen")
+  depositSen     BigInt   @map("deposit_sen")
+  createdBy      String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "leases_org_id_fkey")
+  unit         Unit         @relation(fields: [unitId, orgId], references: [id, orgId], onDelete: Restrict, onUpdate: NoAction, map: "leases_unit_fk")
+  tenant       Tenant       @relation(fields: [tenantId, orgId], references: [id, orgId], onDelete: Restrict, onUpdate: NoAction, map: "leases_tenant_fk")
+  creator      Membership   @relation("LeaseCreatedBy", fields: [createdBy, orgId], references: [userId, orgId], onDelete: Restrict, onUpdate: NoAction, map: "leases_created_by_fk")
+
+  invoices     Invoice[]
+  payments     Payment[]
+  allocations  PaymentAllocation[]
+  gatewayBills GatewayBill[]
+
+  @@unique([id, orgId], map: "leases_id_org_key")
+  @@index([tenantId], map: "leases_tenant_id_idx")
+  @@index([orgId, createdAt, id], map: "leases_org_created_idx")
+  @@map("leases")
+}
+
+// ---------------------------------------------------------------------------
+// invoices: mirror of ScheduledInvoice. NO paid column and NO status column:
+// paid = SUM(payment_allocations.amount_sen), status = invoiceStatus().
+// Not expressible: CHECKs (amount range; `invoices_shape`: deposit has no
+// period, rent has period_index >= 0, period_end >= period_start and
+// due_date = period_start); partial unique indexes `invoices_lease_period_key`
+// (lease_id, period_index) WHERE kind = 'rent' and `invoices_lease_deposit_key`
+// (lease_id) WHERE kind = 'deposit'; RLS.
+// ---------------------------------------------------------------------------
+
+model Invoice {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId       String      @map("org_id") @db.Uuid
+  leaseId     String      @map("lease_id") @db.Uuid
+  kind        InvoiceKind
+  periodIndex Int?        @map("period_index")
+  periodStart DateTime?   @map("period_start") @db.Date
+  periodEnd   DateTime?   @map("period_end") @db.Date
+  dueDate     DateTime    @map("due_date") @db.Date
+  amountSen   BigInt      @map("amount_sen")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lease       Lease               @relation(fields: [leaseId, orgId], references: [id, orgId], onDelete: Restrict, onUpdate: NoAction, map: "invoices_lease_fk")
+  allocations PaymentAllocation[]
+
+  @@unique([id, leaseId], map: "invoices_id_lease_key")
+  @@index([leaseId, dueDate, kind, periodIndex], map: "invoices_lease_alloc_order_idx")
+  @@index([orgId, dueDate], map: "invoices_org_due_idx")
+  @@map("invoices")
+}
+
+// ---------------------------------------------------------------------------
+// gateway_bills. id is server-generated and unguessable: bill_ + 32..128
+// base64url chars. created_by is the tenant's login (tenants.user_id).
+// Declared before payments in SQL because payments references it.
+// Not expressible: CHECKs (id format, amount range, status = 'paid' requires
+// paid_at, transaction_id length); updated_at trigger; RLS.
+// Optional later (migration 3): bill state machine, paid is terminal.
+// ---------------------------------------------------------------------------
+
+model GatewayBill {
+  id            String     @id
+  orgId         String     @map("org_id") @db.Uuid
+  leaseId       String     @map("lease_id") @db.Uuid
+  amountSen     BigInt     @map("amount_sen")
+  status        BillStatus @default(pending)
+  createdBy     String     @map("created_by") @db.Uuid
+  transactionId String?    @map("transaction_id")
+  paidAt        DateTime?  @map("paid_at") @db.Timestamptz(6)
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  lease    Lease     @relation(fields: [leaseId, orgId], references: [id, orgId], onDelete: Restrict, onUpdate: NoAction, map: "gateway_bills_lease_fk")
+  creator  Tenant    @relation(fields: [createdBy], references: [userId], onDelete: Restrict, onUpdate: NoAction, map: "gateway_bills_created_by_fkey")
+  // At most one payment per bill: the DB has UNIQUE(payments.gateway_bill_id).
+  // Modeled as a list because Prisma would otherwise demand a unique over the
+  // whole composite FK (gateway_bill_id, lease_id, amount_sen), which does not exist.
+  payments Payment[]
+
+  @@unique([id, leaseId, amountSen], map: "gateway_bills_id_lease_amount_key")
+  @@index([leaseId], map: "gateway_bills_lease_id_idx")
+  @@index([orgId], map: "gateway_bills_org_id_idx")
+  @@map("gateway_bills")
+}
+
+// ---------------------------------------------------------------------------
+// payments
+// Not expressible: CHECKs (amount range; unapplied_sen 0..amount, only online
+// and only while approved; method <-> gateway_bill_id / slip_path / recorded_by;
+// slip_path stays in `<org_id>/` with no `..`; `payments_status_shape` decides
+// which review/void fields exist per status; reasons need btrim length >= 5);
+// updated_at trigger; the partial index `payments_report_idx`
+// (org_id, received_at) INCLUDE (amount_sen) WHERE status = 'approved'; RLS.
+// Optional later (migration 3): payment state machine, immutable columns,
+// never-delete, slip-exists trigger.
+// The three actor FKs and the bill FK are MATCH SIMPLE: when the nullable
+// column is NULL the FK is not checked.
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId         String        @map("org_id") @db.Uuid
+  leaseId       String        @map("lease_id") @db.Uuid
+  amountSen     BigInt        @map("amount_sen")
+  unappliedSen  BigInt        @default(0) @map("unapplied_sen")
+  method        PaymentMethod
+  status        PaymentStatus
+  receivedAt    DateTime      @map("received_at") @db.Timestamptz(6)
+  slipPath      String?       @map("slip_path")
+  gatewayBillId String?       @unique(map: "payments_gateway_bill_id_key") @map("gateway_bill_id")
+  recordedBy    String?       @map("recorded_by") @db.Uuid
+  reviewedBy    String?       @map("reviewed_by") @db.Uuid
+  reviewedAt    DateTime?     @map("reviewed_at") @db.Timestamptz(6)
+  rejectReason  String?       @map("reject_reason")
+  voidedBy      String?       @map("voided_by") @db.Uuid
+  voidedAt      DateTime?     @map("voided_at") @db.Timestamptz(6)
+  voidReason    String?       @map("void_reason")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  lease       Lease        @relation(fields: [leaseId, orgId], references: [id, orgId], onDelete: Restrict, onUpdate: NoAction, map: "payments_lease_fk")
+  gatewayBill GatewayBill? @relation(fields: [gatewayBillId, leaseId, amountSen], references: [id, leaseId, amountSen], onDelete: Restrict, onUpdate: NoAction, map: "payments_gateway_bill_fk")
+  recorder    Membership?  @relation("PaymentRecordedBy", fields: [recordedBy, orgId], references: [userId, orgId], onDelete: Restrict, onUpdate: NoAction, map: "payments_recorded_by_fk")
+  reviewer    Membership?  @relation("PaymentReviewedBy", fields: [reviewedBy, orgId], references: [userId, orgId], onDelete: Restrict, onUpdate: NoAction, map: "payments_reviewed_by_fk")
+  voider      Membership?  @relation("PaymentVoidedBy", fields: [voidedBy, orgId], references: [userId, orgId], onDelete: Restrict, onUpdate: NoAction, map: "payments_voided_by_fk")
+
+  allocations PaymentAllocation[]
+
+  @@unique([id, leaseId], map: "payments_id_lease_key")
+  @@index([leaseId, status], map: "payments_lease_status_idx")
+  @@index([orgId, createdAt, id], map: "payments_org_created_idx")
+  @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// payment_allocations: payment and invoice must belong to the SAME lease
+// (FKs (payment_id, lease_id) and (invoice_id, lease_id)). Void deletes a
+// payment's rows here (docs/database.md 7.2); the snapshot goes to audit_log.
+// The index serving lookups by payment_id is the unique (payment_id, invoice_id).
+// Not expressible: CHECK amount range; RLS.
+// Optional later (migration 3): deferred triggers I1 (invoice not
+// over-allocated) and I2 (payment fully accounted), delete guard.
+// ---------------------------------------------------------------------------
+
+model PaymentAllocation {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId     String   @map("org_id") @db.Uuid
+  leaseId   String   @map("lease_id") @db.Uuid
+  paymentId String   @map("payment_id") @db.Uuid
+  invoiceId String   @map("invoice_id") @db.Uuid
+  amountSen BigInt   @map("amount_sen")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lease   Lease   @relation(fields: [leaseId, orgId], references: [id, orgId], onDelete: Restrict, onUpdate: NoAction, map: "payment_allocations_lease_fk")
+  payment Payment @relation(fields: [paymentId, leaseId], references: [id, leaseId], onDelete: Restrict, onUpdate: NoAction, map: "payment_allocations_payment_fk")
+  invoice Invoice @relation(fields: [invoiceId, leaseId], references: [id, leaseId], onDelete: Restrict, onUpdate: NoAction, map: "payment_allocations_invoice_fk")
+
+  @@unique([paymentId, invoiceId], map: "payment_allocations_payment_invoice_key")
+  @@index([invoiceId], map: "payment_allocations_invoice_id_idx")
+  @@index([leaseId], map: "payment_allocations_lease_id_idx")
+  @@index([orgId], map: "payment_allocations_org_id_idx")
+  @@map("payment_allocations")
+}
+
+// ---------------------------------------------------------------------------
+// audit_log: APPEND-ONLY for everyone (triggers raise on UPDATE, DELETE,
+// TRUNCATE; ENABLE ALWAYS; no UPDATE/DELETE grants). Only INSERT and SELECT.
+// actor_id has no FK on purpose (NULL = system; the log must outlive accounts).
+// Not expressible: the append-only triggers, CHECKs (action/entity_type not
+// blank, details is a JSON object), RLS (managers of the org read).
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  details    Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "audit_log_org_id_fkey")
+
+  @@index([orgId, createdAt(sort: Desc), id], map: "audit_log_org_created_idx")
+  @@index([entityType, entityId], map: "audit_log_entity_idx")
+  @@map("audit_log")
+}
