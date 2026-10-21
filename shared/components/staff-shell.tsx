@@ -167,7 +167,7 @@ export function StaffShell({ children }: StaffShellProps) {
         </nav>
       </header>
 
-      <main className="flex-1">{children}</main>
+      <main className="container-max flex-1 py-8">{children}</main>
     </div>
   );
 }

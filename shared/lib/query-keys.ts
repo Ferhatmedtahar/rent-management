@@ -20,6 +20,7 @@ export const queryKeys = {
   leases: {
     all: ["leases"] as const,
     list: () => [...queryKeys.leases.all, "list"] as const,
+    formOptions: () => [...queryKeys.leases.all, "form-options"] as const,
   },
   lease: (id: string) => ["leases", "detail", id] as const,
   reports: {

@@ -3,6 +3,8 @@ import {
   defaultMalaysiaNowInput,
   formatDateMyt,
   formatDateTimeMyt,
+  formatMonthMyt,
+  getLastNMonthsMyt,
   malaysiaInputToIso,
 } from "./format-datetime";
 
@@ -95,5 +97,36 @@ describe("defaultMalaysiaNowInput", () => {
     // 2026-01-31 02:00 UTC -> 2026-01-31 10:00 MYT
     const instant2 = new Date("2026-01-31T02:00:00.000Z");
     expect(defaultMalaysiaNowInput(instant2)).toBe("2026-01-31T10:00");
+  });
+});
+
+describe("formatMonthMyt", () => {
+  it("formats YYYY-MM strings correctly", () => {
+    expect(formatMonthMyt("2026-01")).toBe("Jan 2026");
+    expect(formatMonthMyt("2026-03")).toBe("Mar 2026");
+    expect(formatMonthMyt("2025-12")).toBe("Dec 2025");
+  });
+
+  it("throws on malformed inputs", () => {
+    expect(() => formatMonthMyt("2026-1")).toThrow();
+    expect(() => formatMonthMyt("2026-13")).toThrow();
+  });
+});
+
+describe("getLastNMonthsMyt", () => {
+  it("computes last 6 months range across new year boundary", () => {
+    // 2026-02-15 10:00 MYT -> last 6 months: Sep 2025 to Feb 2026
+    const now = new Date("2026-02-15T02:00:00Z");
+    const range = getLastNMonthsMyt(now, 6);
+    expect(range.from).toBe("2025-09");
+    expect(range.to).toBe("2026-02");
+    expect(range.months).toEqual([
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12",
+      "2026-01",
+      "2026-02",
+    ]);
   });
 });

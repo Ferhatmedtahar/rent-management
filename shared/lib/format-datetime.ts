@@ -106,3 +106,61 @@ export function defaultMalaysiaNowInput(now: Date): string {
   const myt = new Date(now.getTime() + MALAYSIA_OFFSET_MS);
   return myt.toISOString().slice(0, 16);
 }
+
+/**
+ * Format a month "YYYY-MM" string to "Jan 2026".
+ */
+export function formatMonthMyt(yyyyMm: string): string {
+  if (!/^\d{4}-\d{2}$/.test(yyyyMm)) {
+    throw new Error(`Invalid month format (expected YYYY-MM): "${yyyyMm}"`);
+  }
+  const [yearStr, monthStr] = yyyyMm.split("-");
+  const year = Number(yearStr);
+  const monthIndex = Number(monthStr) - 1;
+  if (monthIndex < 0 || monthIndex > 11) {
+    throw new Error(`Month out of bounds: "${yyyyMm}"`);
+  }
+  return `${MONTH_NAMES[monthIndex]} ${year}`;
+}
+
+/**
+ * Return the last N months in Malaysia time up to and including the current Malaysia month.
+ * Pure calculation based on given `now` instant.
+ */
+export function getLastNMonthsMyt(
+  now: Date,
+  count = 6,
+): {
+  from: string;
+  to: string;
+  months: string[];
+} {
+  const myt = new Date(now.getTime() + MALAYSIA_OFFSET_MS);
+  const currentYear = myt.getUTCFullYear();
+  const currentMonth = myt.getUTCMonth() + 1; // 1..12
+
+  let startYear = currentYear;
+  let startMonth = currentMonth - (count - 1);
+  while (startMonth <= 0) {
+    startMonth += 12;
+    startYear -= 1;
+  }
+
+  const months: string[] = [];
+  let y = startYear;
+  let m = startMonth;
+  for (let step = 0; step < count; step += 1) {
+    months.push(`${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}`);
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+
+  return {
+    from: months[0]!,
+    to: months[months.length - 1]!,
+    months,
+  };
+}

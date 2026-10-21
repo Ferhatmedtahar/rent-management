@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { DashboardPlaceholderContainer } from "@/modules/reports";
+import { DashboardScreenContainer } from "@/modules/reports";
 
 export const metadata: Metadata = {
-  title: "Dashboard",
-  description: "Collections and overdue summary for staff and managers",
+  title: "Dashboard | Rent Collection",
+  description: "Staff and manager dashboard (collections and overdue reports)",
+  robots: { index: false },
 };
 
 export default function DashboardPage() {
-  return <DashboardPlaceholderContainer />;
+  return <DashboardScreenContainer />;
 }

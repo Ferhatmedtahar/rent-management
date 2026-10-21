@@ -1,3 +1,14 @@
+import Link from "next/link";
+import { ArrowLeftIcon } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/shared/ui/card";
+import { Button } from "@/shared/ui/button";
+import { StatusBadge, LoadingState, ErrorState } from "@/shared/components";
 import { formatSen } from "@/shared/lib/format-money";
 import type { BillView } from "../types/gateway.types";
 
@@ -9,32 +20,27 @@ type BillReturnScreenProps = {
   onRetry: () => void;
 };
 
-const STATUS_TEXT: Record<
+const STATUS_INFO: Record<
   BillView["status"],
   { title: string; detail: string }
 > = {
   paid: {
-    title: "Payment received",
+    title: "Payment Received",
     detail:
-      "The payment gateway confirmed this payment and it has been recorded.",
+      "The payment gateway has confirmed this payment and it has been applied to your lease invoices.",
   },
   pending: {
-    title: "Waiting for confirmation",
+    title: "Waiting for Confirmation",
     detail:
-      "We have not heard from the payment gateway yet. This page updates by itself.",
+      "Waiting for the payment gateway... This page updates automatically once confirmed.",
   },
   failed: {
-    title: "Payment not completed",
+    title: "Payment Failed",
     detail:
-      "The payment gateway reported that this payment failed. You can try again.",
+      "The payment gateway reported that this payment failed. Please return to the portal and try again.",
   },
 };
 
-/**
- * Pure view: props in, markup out. It shows the bill's status as stored in our
- * database. It never reads the `paid=` value the gateway appends to the return
- * URL, and nothing here can settle a bill.
- */
 export function BillReturnScreen({
   billId,
   bill,
@@ -44,61 +50,136 @@ export function BillReturnScreen({
 }: BillReturnScreenProps) {
   if (billId === null) {
     return (
-      <main className="mx-auto w-full max-w-lg p-6">
-        <h1 className="text-xl font-semibold">No bill to show</h1>
-        <p className="mt-2">
-          This page needs a bill reference. Go back to your lease and use Pay
-          now.
-        </p>
-      </main>
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-title-2 text-label">
+              No Bill Specified
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-subheadline text-label-2">
+              This page requires a valid bill reference. Return to the tenant
+              portal to make an online payment.
+            </p>
+          </CardContent>
+          <CardFooter>
+            <Button
+              asChild
+              className="bg-tint text-on-tint hover:bg-tint/90 w-full"
+            >
+              <Link href="/portal">Back to Tenant Portal</Link>
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
     );
   }
 
   if (isLoading) {
     return (
-      <main className="mx-auto w-full max-w-lg p-6">
-        <p role="status">Checking your payment…</p>
-      </main>
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6">
+            <LoadingState label="Checking payment status..." />
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   if (errorMessage) {
     return (
-      <main className="mx-auto w-full max-w-lg p-6">
-        <div role="alert">
-          <p>{errorMessage}</p>
-          <button type="button" onClick={onRetry} className="mt-3 underline">
-            Try again
-          </button>
-        </div>
-      </main>
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6">
+            <ErrorState
+              title="Could not check payment"
+              message={errorMessage}
+              onRetry={onRetry}
+            />
+          </CardContent>
+          <CardFooter className="pt-0">
+            <Button asChild variant="outline" className="w-full">
+              <Link href="/portal">Back to Tenant Portal</Link>
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
     );
   }
 
   if (!bill) {
     return (
-      <main className="mx-auto w-full max-w-lg p-6">
-        <p>No details are available for this bill yet.</p>
-        <button type="button" onClick={onRetry} className="mt-3 underline">
-          Check now
-        </button>
-      </main>
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-title-2 text-label">
+              Bill Not Found
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-subheadline text-label-2">
+              No details were found for bill{" "}
+              <span className="text-label font-mono break-all">{billId}</span>.
+            </p>
+          </CardContent>
+          <CardFooter>
+            <Button
+              asChild
+              className="bg-tint text-on-tint hover:bg-tint/90 w-full"
+            >
+              <Link href="/portal">Back to Tenant Portal</Link>
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
     );
   }
 
-  const text = STATUS_TEXT[bill.status];
+  const info = STATUS_INFO[bill.status];
+
   return (
-    <main className="mx-auto w-full max-w-lg p-6">
-      <h1 className="text-xl font-semibold">{text.title}</h1>
-      <p className="mt-2">{text.detail}</p>
-      <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-        <dt>Amount</dt>
-        <dd className="tabular-nums">{formatSen(bill.amountSen)}</dd>
-        <dt>Status</dt>
-        <dd>{bill.status}</dd>
-        <dt>Bill</dt>
-        <dd className="font-mono text-sm break-all">{bill.billId}</dd>
-      </dl>
-    </main>
+    <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-footnote text-label-2 font-medium">
+              Payment Gateway
+            </span>
+            <StatusBadge status={bill.status} />
+          </div>
+          <CardTitle className="text-title-2 text-label">
+            {info.title}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-subheadline text-label-2">{info.detail}</p>
+
+          <div className="bg-inset text-subheadline border-outline space-y-2 rounded-lg border p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-label-2">Amount</span>
+              <span className="text-label tabular font-semibold">
+                {formatSen(bill.amountSen)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-label-2">Bill ID</span>
+              <span className="text-footnote text-label font-mono select-all">
+                {bill.billId}
+              </span>
+            </div>
+          </div>
+        </CardContent>
+        <CardFooter>
+          <Button asChild variant="outline" className="w-full gap-2">
+            <Link href="/portal">
+              <ArrowLeftIcon className="h-4 w-4" />
+              <span>Back to Tenant Portal</span>
+            </Link>
+          </Button>
+        </CardFooter>
+      </Card>
+    </div>
   );
 }

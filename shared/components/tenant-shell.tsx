@@ -97,7 +97,7 @@ export function TenantShell({ children }: TenantShellProps) {
         </div>
       </header>
 
-      <main className="flex-1">{children}</main>
+      <main className="container-max flex-1 py-8">{children}</main>
     </div>
   );
 }

@@ -49,17 +49,38 @@ Docker files, an empty module skeleton) was prepared before the timer started; a
 | Area                                                           | Status                                                   |
 | -------------------------------------------------------------- | -------------------------------------------------------- |
 | Billing, access control, payments, webhook, collections report | Implemented, covered by unit tests and `*:check` scripts |
-| UI                                                             | _Update before submitting: list which screens exist_     |
+| UI                                                             | **Not finished — functional scaffolding only**           |
+
+### The UI is not finished
+
+This submission is backend-first and the interface was left unfinished. Please judge the
+project on the domain logic, API, database and security layers, not on the front end.
+
+What is **not** done:
+
+- **No finished UI/UX.** Pages exist as rough, functional scaffolding so the API can be driven
+  from a browser. Layout, spacing, hierarchy, empty/error states and the design system in
+  `DESIGN.md` are not applied consistently, and several screens called for in the brief are
+  missing or only partially wired.
+- **No animations or transitions.** No motion, page transitions, skeleton shimmer, toasts, or
+  micro-interactions were built.
+- **No polish:** no responsive pass, no accessibility audit, no dark-mode QA, no loading-state
+  design, no visual QA of any kind.
+- **No end-to-end UI tests.**
 
 ## Known issues and what was skipped
 
-- _Update before submitting._ Items to confirm: UI screens not built, `Idempotency-Key` not used
-  (not in the brief), no deposit refund flow (not in the brief), the optional integrity triggers
-  ("migration 3") were not added.
+- **UI/UX and animation are unfinished** (see above). Treat the front end as a demo harness for
+  the API, not a deliverable.
+- `Idempotency-Key` is not used (not in the brief).
+- No deposit refund flow (not in the brief).
+- The optional integrity triggers ("migration 3") were not added.
 - The `*:check` scripts create throwaway data; run `npx supabase db reset && npm run seed`
   afterwards.
 
 ## Next steps
 
-Deposit refund / credit notes, list pagination and search, realtime tenant portal updates, the
-optional database integrity triggers, end-to-end browser tests.
+1. Finish the UI/UX: apply `DESIGN.md` properly, complete every screen, add animations and
+   transitions, toasts, loading/empty/error states, responsive and accessibility passes.
+2. Deposit refund / credit notes, list pagination and search, realtime tenant portal updates.
+3. The optional database integrity triggers, end-to-end browser tests.

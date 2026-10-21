@@ -7,3 +7,10 @@ export function fetchBill(billId: string, signal?: AbortSignal) {
     signal,
   });
 }
+
+export function createGatewayBill(leaseId: string, signal?: AbortSignal) {
+  return api.post<{ billId: string; amountSen: number }>(
+    `/leases/${leaseId}/gateway-bills`,
+    { signal },
+  );
+}

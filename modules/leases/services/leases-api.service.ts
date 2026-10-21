@@ -11,3 +11,20 @@ export function fetchLease(
 export function fetchLeases(signal?: AbortSignal): Promise<LeaseSummary[]> {
   return api.get<LeaseSummary[]>("/leases", { signal });
 }
+
+export function createLease(
+  payload: {
+    unitId: string;
+    tenantId: string;
+    startDate: string;
+    endDate: string;
+    monthlyRentSen: number;
+    depositSen: number;
+  },
+  signal?: AbortSignal,
+): Promise<{ id: string }> {
+  return api.post<{ id: string }>("/leases", {
+    body: payload,
+    signal,
+  });
+}

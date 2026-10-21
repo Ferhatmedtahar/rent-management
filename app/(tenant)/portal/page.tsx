@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { PortalPlaceholderContainer } from "@/modules/auth";
+import { TenantPortalScreenContainer } from "@/modules/portal";
 
 export const metadata: Metadata = {
-  title: "Tenant Portal",
-  description: "View your lease, billing periods, and payment records",
+  title: "Tenant Portal | Rent Collection",
+  description: "View rent invoices, payment history, and pay online.",
+  robots: { index: false },
 };
 
-export default function PortalPage() {
-  return <PortalPlaceholderContainer />;
+export default function TenantPortalPage() {
+  return <TenantPortalScreenContainer />;
 }

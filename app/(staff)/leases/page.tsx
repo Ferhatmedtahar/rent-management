@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { LeasesPlaceholderContainer } from "@/modules/leases";
+import { LeasesScreenContainer } from "@/modules/leases";
 
 export const metadata: Metadata = {
-  title: "Leases",
-  description: "View and manage all active and past property leases",
+  title: "Leases | Rent Collection",
+  description: "View and manage property leases, tenants, and units",
+  robots: { index: false },
 };
 
 export default function LeasesPage() {
-  return <LeasesPlaceholderContainer />;
+  return <LeasesScreenContainer />;
 }

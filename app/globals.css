@@ -455,20 +455,21 @@ select:focus-visible {
 }
 
 /* ── Containers ──────────────────────────────────────────────────────────── */
-/* Page column: full width with side padding on phones, a fixed measure above. */
-@utility container-max {
-  margin-inline: auto;
-  width: 100%;
-  max-width: 1128px;
-  padding-inline: 1rem;
-  @media (width >= 48rem) {
-    padding-inline: 1.5rem;
+@layer utilities {
+  .container-max {
+    @apply mx-auto max-w-full px-8 sm:max-w-[636px] sm:px-0 md:max-w-[768px] lg:max-w-[1024px] xl:max-w-[1128px];
   }
-}
-/* Reading column for forms, settings and long text. */
-@utility container-mid {
-  margin-inline: auto;
-  width: 100%;
-  max-width: 768px;
-  padding-inline: 1rem;
+
+  .container-mid {
+    @apply mx-auto max-w-full px-0 sm:max-w-[636px] sm:px-16 md:max-w-[768px] lg:max-w-[1024px] xl:max-w-[1128px];
+  }
+
+  /* 1440px */
+  .max-container {
+    @apply mx-auto max-w-6xl;
+  }
+
+  .mid-container {
+    @apply mx-auto max-w-lg md:max-w-2xl lg:max-w-5xl;
+  }
 }
